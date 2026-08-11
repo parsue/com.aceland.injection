@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <Nullable>disable</Nullable>
+        <ImplicitUsings>disable</ImplicitUsings>
+
+        <AssemblyName>AceLand.Injection.SourceGenerator</AssemblyName>
+        <RootNamespace>AceLand.Injection.SourceGenerator</RootNamespace>
+        <Version>1.0.0</Version>
+
+        <IsRoslynComponent>true</IsRoslynComponent>
+        <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+        <IncludeBuildOutput>false</IncludeBuildOutput>
+        <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <DebugType>none</DebugType>
+        <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+
+        <!-- where the DLL must land for Unity to pick it up -->
+        <UnityAnalyzerDir>$(MSBuildProjectDirectory)\..\Analyzers\</UnityAnalyzerDir>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp"
+                          Version="3.8.0" PrivateAssets="all" ExcludeAssets="runtime" />
+        <PackageReference Include="Microsoft.CodeAnalysis.Analyzers"
+                          Version="3.3.4" PrivateAssets="all" />
+    </ItemGroup>
+
+    <!-- ★ copy ONLY our DLL into the package. Retries survive Unity holding the file. -->
+    <Target Name="InstallToUnityPackage" AfterTargets="Build">
+        <MakeDir Directories="$(UnityAnalyzerDir)" />
+        <Copy SourceFiles="$(TargetPath)"
+              DestinationFolder="$(UnityAnalyzerDir)"
+              Retries="6"
+              RetryDelayMilliseconds="800"
+              ContinueOnError="WarnAndContinue" />
+        <Message Importance="high"
+                 Text="→ installed $(TargetFileName) to $(UnityAnalyzerDir)" />
+    </Target>
+
+</Project>

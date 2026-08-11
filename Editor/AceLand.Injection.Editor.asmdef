@@ -1,0 +1,6 @@
+﻿{
+  "name": "AceLand.Injection.Editor",
+  "rootNamespace": "AceLand.Injection.Editor",
+  "references": ["AceLand.Injection", "AceLand.Injection.Abstractions"],
+  "includePlatforms": ["Editor"]
+}
