@@ -8,7 +8,7 @@ namespace AceLand.Injection
     {
         static Injector() => ComponentResolver.Hook();
         
-        /// <summary>Set to false to force the reflection path (debugging).</summary>
+        /// <summary>Set false to force the reflection path (debugging).</summary>
         public static bool UseGeneratedPlans = true;
 
         // ------------------------------------------------------------------ create
@@ -57,7 +57,7 @@ namespace AceLand.Injection
 
             info ??= InjectTypeInfo.Get(type);
             var component = instance as Component;
-            var ignoreAttributes = reg != null && reg.IgnoreAttributes;
+            var ignoreAttributes = reg is { IgnoreAttributes: true };
 
             if (!ignoreAttributes)
             {
@@ -167,7 +167,7 @@ namespace AceLand.Injection
                 if (d.Kind != DependencyKind.Constructor || d.Optional) continue;
                 if (InjectorPlanUtil.PickExtra(extraArgs, d.ContractType) != null) continue;
                 if (!scope.CanResolve(d.ContractType, d.Id))
-                    return !plan.HasMultipleConstructors ? true : false; // single ctor → let it throw nicely
+                    return !plan.HasMultipleConstructors; // single ctor → let it throw nicely
             }
             return true;
         }
@@ -196,7 +196,7 @@ namespace AceLand.Injection
                 chosen = null;
                 foreach (var c in info.Constructors)
                     if (CanSatisfy(c, scope, reg, extraArgs)) { chosen = c; break; }
-                chosen ??= info.Constructors.Length > 0 ? info.Constructors[info.Constructors.Length - 1] : null;
+                chosen ??= info.Constructors.Length > 0 ? info.Constructors[^1] : null;
             }
 
             if (reg != null) reg.CachedConstructor = chosen;
@@ -228,7 +228,7 @@ namespace AceLand.Injection
             var attr = p.GetCustomAttribute<InjectAttribute>();
             if (scope.TryResolve(p.ParameterType, out var v, attr?.Id)) return v;
             if (p.HasDefaultValue) return p.DefaultValue;
-            if (attr != null && attr.Optional) return null;
+            if (attr is { Optional: true }) return null;
 
             throw new InjectionException(
                 $"Cannot construct {owner.Name}: parameter '{p.Name}' ({p.ParameterType.Name}) is not registered. " +

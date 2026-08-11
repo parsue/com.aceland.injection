@@ -1,6 +1,19 @@
-﻿{
-  "name": "AceLand.Injection.Editor",
-  "rootNamespace": "AceLand.Injection.Editor",
-  "references": ["AceLand.Injection", "AceLand.Injection.Abstractions"],
-  "includePlatforms": ["Editor"]
+{
+    "name": "AceLand.Injection.Editor",
+    "rootNamespace": "AceLand.Injection",
+    "references": [
+        "AceLand.Injection",
+        "AceLand.Injection.Abstractions"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }

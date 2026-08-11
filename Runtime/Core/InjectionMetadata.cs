@@ -14,6 +14,20 @@ namespace AceLand.Injection
             var info = InjectTypeInfo.Get(type);
             var list = new List<InjectDependency>();
 
+            // Constructors are ordered greediest-first, matching Injector's own selection
+            var ctor = info.AttributedConstructor
+                       ?? (info.Constructors.Length > 0 ? info.Constructors[0] : null);
+
+            if (ctor != null)
+            {
+                foreach (var p in ctor.GetParameters())
+                {
+                    var attr = p.GetCustomAttribute<InjectAttribute>();
+                    list.Add(new InjectDependency(p.ParameterType, DependencyKind.Constructor, p.Name,
+                        p.HasDefaultValue || (attr?.Optional ?? false), attr?.Id));
+                }
+            }
+
             if (info.AttributedConstructor != null)
                 foreach (var p in info.AttributedConstructor.GetParameters())
                     list.Add(new InjectDependency(p.ParameterType, DependencyKind.Constructor, p.Name,

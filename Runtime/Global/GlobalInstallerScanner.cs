@@ -9,9 +9,9 @@ namespace AceLand.Injection
 {
     internal static class GlobalInstallerScanner
     {
-        public const string ResourcesFolder = "AceLandInjection";
+        private const string RESOURCES_FOLDER = "AceLandInjection";
 
-        static readonly string[] Ignored =
+        private static readonly string[] ignored =
         {
             "System", "mscorlib", "netstandard", "Mono.", "Unity.", "UnityEngine", "UnityEditor",
             "nunit.", "Bee.", "ExCSS", "Newtonsoft", "log4net", "JetBrains", "Microsoft."
@@ -41,7 +41,7 @@ namespace AceLand.Injection
 #endif
             found.Sort((a, b) => a.order.CompareTo(b.order));
 
-            foreach (var so in Resources.LoadAll<ScriptableObject>(ResourcesFolder))
+            foreach (var so in Resources.LoadAll<ScriptableObject>(RESOURCES_FOLDER))
                 if (so is IInstaller inst) found.Add((int.MaxValue, inst));
 
             return found.Select(f => f.installer);
@@ -80,10 +80,10 @@ namespace AceLand.Injection
             }
         }
 
-        static bool Skip(Assembly asm)
+        private static bool Skip(Assembly asm)
         {
             var n = asm.GetName().Name;
-            foreach (var p in Ignored) if (n.StartsWith(p, StringComparison.Ordinal)) return true;
+            foreach (var p in ignored) if (n.StartsWith(p, StringComparison.Ordinal)) return true;
             return false;
         }
     }

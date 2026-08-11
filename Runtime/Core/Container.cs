@@ -8,18 +8,18 @@ using UnityEngine;
 
 namespace AceLand.Injection
 {
-    public sealed class Container : IObjectResolver, IAsyncDisposable
+    public sealed class Container : IObjectResolver, IAsyncDisposable, IContainerIntrospection
     {
-        readonly Container _parent;
-        readonly Dictionary<RegistrationKey, List<Registration>> _registry =
-            new Dictionary<RegistrationKey, List<Registration>>();
-        readonly Dictionary<Registration, object> _instances = new Dictionary<Registration, object>();
-        readonly List<object> _disposables = new List<object>();      // IDisposable / IAsyncDisposable
-        readonly List<Container> _children = new List<Container>();
-        readonly List<IExternalResolver> _fallbacks;
-        readonly object _sync = new object();
+        private readonly Container _parent;
 
-        [ThreadStatic] static Stack<Type> _resolveStack;
+        private readonly Dictionary<RegistrationKey, List<Registration>> _registry = new();
+        private readonly Dictionary<Registration, object> _instances = new();
+        private readonly List<object> _disposables = new();      // IDisposable / IAsyncDisposable
+        private readonly List<Container> _children = new();
+        private readonly List<IExternalResolver> _fallbacks;
+        private readonly object _sync = new();
+
+        [ThreadStatic] private static Stack<Type> _resolveStack;
 
         public bool IsDisposed { get; private set; }
         internal Container Parent => _parent;
@@ -59,7 +59,7 @@ namespace AceLand.Injection
                 foreach (var t in builder.EntryPointTypes) Resolve(t);
         }
 
-        void AddToRegistry(Registration reg)
+        private void AddToRegistry(Registration reg)
         {
             foreach (var contract in reg.ContractTypes)
             {
@@ -104,7 +104,7 @@ namespace AceLand.Injection
                     var name = def == typeof(Func<>) ? nameof(MakeFactory) : nameof(MakeLazy);
                     instance = typeof(Container)
                         .GetMethod(name, System.Reflection.BindingFlags.NonPublic |
-                                         System.Reflection.BindingFlags.Instance)
+                                         System.Reflection.BindingFlags.Instance)!
                         .MakeGenericMethod(t).Invoke(this, null);
                     return true;
                 }
@@ -136,19 +136,19 @@ namespace AceLand.Injection
             return false;
         }
 
-        Func<T> MakeFactory<T>() => () => Resolve<T>();
-        Lazy<T> MakeLazy<T>() => new Lazy<T>(() => Resolve<T>());
+        private Func<T> MakeFactory<T>() => () => Resolve<T>();
+        private Lazy<T> MakeLazy<T>() => new(() => Resolve<T>());
 
-        Registration FindRegistration(Type contract, object id)
+        private Registration FindRegistration(Type contract, object id)
         {
             var key = new RegistrationKey(contract, id);
             for (var c = this; c != null; c = c._parent)
                 if (c._registry.TryGetValue(key, out var list) && list.Count > 0)
-                    return list[list.Count - 1];      // last wins
+                    return list[^1];      // last wins
             return null;
         }
 
-        static Type ElementTypeOf(Type contract)
+        private static Type ElementTypeOf(Type contract)
         {
             if (contract.IsArray) return contract.GetElementType();
             if (!contract.IsGenericType) return null;
@@ -159,7 +159,7 @@ namespace AceLand.Injection
                 ? contract.GetGenericArguments()[0] : null;
         }
 
-        bool TryResolveCollection(Type contract, object id, out object result)
+        private bool TryResolveCollection(Type contract, object id, out object result)
         {
             var element = ElementTypeOf(contract);
             if (element == null) { result = null; return false; }
@@ -172,7 +172,8 @@ namespace AceLand.Injection
             if (all.Count == 0) { result = null; return false; }
 
             var list2 = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(element));
-            for (int i = 0; i < all.Count; i++) list2.Add(GetOrCreate(all[i], this));
+            foreach (var t in all)
+                list2.Add(GetOrCreate(t, this));
 
             if (contract.IsArray)
             {
@@ -184,7 +185,7 @@ namespace AceLand.Injection
             return true;
         }
 
-        object GetOrCreate(Registration reg, Container requestScope)
+        private object GetOrCreate(Registration reg, Container requestScope)
         {
             switch (reg.Lifetime)
             {
@@ -220,14 +221,14 @@ namespace AceLand.Injection
             }
         }
 
-        void Track(Registration reg, object instance)
+        private void Track(Registration reg, object instance)
         {
             if (!reg.OwnsInstance || ReferenceEquals(instance, this)) return;
             if (instance is IDisposable || instance is IAsyncDisposable)
                 lock (_sync) _disposables.Add(instance);
         }
 
-        object Create(Registration reg, Container scope)
+        private object Create(Registration reg, Container scope)
         {
             if (reg.Instance != null)
             {
@@ -343,7 +344,7 @@ namespace AceLand.Injection
             Cleanup();
         }
 
-        void Cleanup()
+        private void Cleanup()
         {
             _disposables.Clear();
             _instances.Clear();
@@ -351,12 +352,12 @@ namespace AceLand.Injection
             _parent?._children.Remove(this);
         }
 
-        static async void FireAndForget(ValueTask task)
+        private static async void FireAndForget(ValueTask task)
         {
             try { await task; } catch (Exception e) { Debug.LogException(e); }
         }
 
-        void ThrowIfDisposed()
+        private void ThrowIfDisposed()
         {
             if (IsDisposed) throw new ObjectDisposedException(nameof(Container));
         }
@@ -367,10 +368,10 @@ namespace AceLand.Injection
                 foreach (var k in c._registry.Keys) yield return k.Type;
         }
 
-        internal string DescribeChain()
+        private string DescribeChain()
         {
             var sb = new StringBuilder().AppendLine();
-            int depth = 0;
+            var depth = 0;
             for (var c = this; c != null; c = c._parent, depth++)
             {
                 sb.AppendLine($"[scope {depth}] {c._registry.Count} contracts:");
@@ -379,5 +380,71 @@ namespace AceLand.Injection
             }
             return sb.ToString();
         }
+
+    public string Label { get; set; } = "Container";
+
+    public int Depth
+    {
+        get { int d = 0; for (var c = _parent; c != null; c = c._parent) d++; return d; }
+    }
+
+    IObjectResolver IContainerIntrospection.ParentResolver => _parent;
+
+    public IReadOnlyList<RegistrationInfo> LocalRegistrations
+    {
+        get
+        {
+            var seen = new HashSet<Registration>();
+            var list = new List<RegistrationInfo>();
+
+            lock (_sync)
+            {
+                foreach (var pair in _registry)
+                foreach (var reg in pair.Value)
+                {
+                    if (!seen.Add(reg)) continue;
+                    list.Add(Describe(reg));
+                }
+            }
+
+            list.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, StringComparison.Ordinal));
+            return list;
+        }
+    }
+
+    public bool TryDescribeResolution(Type contract, object id,
+                                      out RegistrationInfo info, out IObjectResolver owner)
+    {
+        for (var c = this; c != null; c = c._parent)
+        {
+            if (!c._registry.TryGetValue(new RegistrationKey(contract, id), out var list) || list.Count == 0)
+                continue;
+
+            var reg = list[^1];          // last wins, same as resolution
+            info = c.Describe(reg);
+            owner = c;
+            return true;
+        }
+        info = default;
+        owner = null;
+        return false;
+    }
+
+    private RegistrationInfo Describe(Registration reg)
+    {
+        var kind = ReferenceEquals(reg.Instance, this) ? RegistrationKind.Container
+                 : reg.Instance != null ? RegistrationKind.Instance
+                 : reg.Factory != null ? RegistrationKind.Factory
+                 : RegistrationKind.Type;
+
+        return new RegistrationInfo(
+            reg.Serial,
+            reg.ContractTypes.ToArray(),
+            reg.ImplementationType,
+            reg.Lifetime,
+            reg.Id,
+            kind,
+            reg.Instance != null || _instances.ContainsKey(reg));
+    }
     }
 }

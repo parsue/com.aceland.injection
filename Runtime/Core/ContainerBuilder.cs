@@ -7,10 +7,10 @@ namespace AceLand.Injection
 {
     public sealed class ContainerBuilder : IContainerBuilder
     {
-        internal readonly List<Registration> Registrations = new List<Registration>();
-        internal readonly List<Action<IObjectResolver>> BuildCallbacks = new List<Action<IObjectResolver>>();
-        internal readonly List<Type> EntryPointTypes = new List<Type>();
-        internal readonly List<IExternalResolver> Fallbacks = new List<IExternalResolver>();
+        internal readonly List<Registration> Registrations = new();
+        internal readonly List<Action<IObjectResolver>> BuildCallbacks = new();
+        internal readonly List<Type> EntryPointTypes = new();
+        internal readonly List<IExternalResolver> Fallbacks = new();
 
         internal Container ParentContainer;
 

@@ -2,7 +2,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace AceLand.Injection
 {
@@ -14,7 +13,7 @@ namespace AceLand.Injection
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
         internal static void Hook() => ComponentInjection.Resolver = ResolveBoxed;
 
-        static object ResolveBoxed(object owner, ComponentSource source, Type memberType,
+        private static object ResolveBoxed(object owner, ComponentSource source, Type memberType,
                                    bool optional, bool includeInactive, string memberName)
         {
             if (!(owner is Component c))
@@ -55,9 +54,9 @@ namespace AceLand.Injection
             return list;
         }
 
-        enum Kind { Single, Array, List }
+        private enum Kind { Single, Array, List }
 
-        static (Type, Kind) Unwrap(Type t)
+        private static (Type, Kind) Unwrap(Type t)
         {
             if (t.IsArray) return (t.GetElementType(), Kind.Array);
             if (t.IsGenericType)
@@ -70,7 +69,7 @@ namespace AceLand.Injection
             return (t, Kind.Single);
         }
 
-        static Component FindSingle(Component o, ComponentSource s, Type type, bool includeInactive)
+        private static Component FindSingle(Component o, ComponentSource s, Type type, bool includeInactive)
         {
             switch (s)
             {
@@ -85,7 +84,7 @@ namespace AceLand.Injection
             }
         }
 
-        static IList<Component> FindMany(Component o, ComponentSource s, Type type, bool includeInactive)
+        private static IList<Component> FindMany(Component o, ComponentSource s, Type type, bool includeInactive)
         {
             switch (s)
             {

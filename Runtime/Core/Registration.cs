@@ -6,7 +6,10 @@ using System.Reflection;
 namespace AceLand.Injection
 {
     public sealed class Registration
-    {
+    {   
+        static int _nextSerial;
+        internal readonly int Serial = System.Threading.Interlocked.Increment(ref _nextSerial);
+        
         public Type ImplementationType;
         public Lifetime Lifetime;
         public object Id;

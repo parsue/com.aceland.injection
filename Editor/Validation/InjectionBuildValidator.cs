@@ -1,10 +1,9 @@
 ﻿using System.Linq;
-using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 
-namespace AceLand.Injection.Editor
+namespace AceLand.Injection.Editor.Validation
 {
     public sealed class InjectionBuildValidator : IPreprocessBuildWithReport
     {

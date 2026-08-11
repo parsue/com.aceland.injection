@@ -7,8 +7,8 @@ namespace AceLand.Injection.Editor
 {
     internal static class AnalyzerImportFixer
     {
-        const string AnalyzerName = "AceLand.Injection.SourceGenerator.dll";
-        const string Label = "RoslynAnalyzer";
+        private const string ANALYZER_NAME = "AceLand.Injection.SourceGenerator.dll";
+        private const string LABEL = "RoslynAnalyzer";
 
         [MenuItem("Tools/AceLand/Injection/Fix Analyzer Import Settings")]
         private static void Fix()
@@ -16,7 +16,7 @@ namespace AceLand.Injection.Editor
             var path = FindAnalyzer();
             if (path == null)
             {
-                Debug.LogError($"[Injection] {AnalyzerName} not found. " +
+                Debug.LogError($"[Injection] {ANALYZER_NAME} not found. " +
                                "Build it: SourceGenerator~ → dotnet build -c Release");
                 return;
             }
@@ -47,9 +47,9 @@ namespace AceLand.Injection.Editor
                     "error persists, edit the .meta manually — see the package README.");
 
             var labels = AssetDatabase.GetLabels(importer).ToList();
-            if (!labels.Contains(Label))
+            if (!labels.Contains(LABEL))
             {
-                labels.Add(Label);
+                labels.Add(LABEL);
                 AssetDatabase.SetLabels(importer, labels.ToArray());
             }
 
@@ -63,8 +63,8 @@ namespace AceLand.Injection.Editor
         {
             var candidates = new[]
             {
-                "Packages/com.aceland.injection/Analyzers/" + AnalyzerName,
-                "Assets/Plugins/AceLand/" + AnalyzerName,
+                "Packages/com.aceland.injection/Analyzers/" + ANALYZER_NAME,
+                "Assets/Plugins/AceLand/" + ANALYZER_NAME,
             };
 
             foreach (var c in candidates)
@@ -72,7 +72,7 @@ namespace AceLand.Injection.Editor
 
             return AssetDatabase.FindAssets("AceLand.Injection.SourceGenerator")
                 .Select(AssetDatabase.GUIDToAssetPath)
-                .FirstOrDefault(p => p.EndsWith(AnalyzerName, System.StringComparison.Ordinal));
+                .FirstOrDefault(p => p.EndsWith(ANALYZER_NAME, System.StringComparison.Ordinal));
         }
     }
 }

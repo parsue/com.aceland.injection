@@ -1,0 +1,148 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+namespace AceLand.Injection.Editor.Graph
+{
+    public enum NodeKind { Scope, Registration, Consumer, Unresolved }
+
+    public enum EdgeKind
+    {
+        ScopeParent,     // scope → parent scope
+        Provides,        // scope → registration
+        Resolves,        // consumer → registration
+        Deferred,        // via Func<T> / Lazy<T>
+        Collection,      // via IEnumerable<T> — fan-out
+        Component,       // [Self]/[Parent]/[Child] — hierarchy, not container
+        Missing          // consumer → unresolved
+    }
+    
+    public sealed class GraphGroup
+    {
+        public string Id;
+        public string Title;
+        public string Subtitle;
+        public int ColorIndex;
+        public int Depth;                    // NEW — scope depth, drives the column
+        public int Column;                   // NEW — assigned by layout
+        public bool IsError;
+        public bool IsWarning;               // NEW
+        public readonly List<string> Notes = new();   // NEW
+        public Rect Rect;
+        public Rect HeaderRect;              // NEW — world space, for hit testing
+        public readonly List<GraphNode> Nodes = new();
+
+        public string ScenePath, ObjectPath, ComponentTypeName;
+        public UnityEngine.Object Target;
+        
+        public Type ResolvedType;
+        public string TypeFullName;
+        public string Origin;
+
+        public bool IsScope => Id != "group:unresolved" && Id != "group:consumers";
+    }
+
+    public sealed class GraphNode
+    {
+        public string Id;
+        public NodeKind Kind;
+        public string Title;
+        public string Subtitle;
+        public readonly List<string> Details = new();
+        public bool HasError;
+        public bool IsInstantiated;
+        public int Depth;
+        public string OwnerScopeId;
+        public UnityEngine.Object Target;      // for Select / ping
+        public Rect Rect;          // filled by layout
+        public string ScenePath;
+        public string ObjectPath;
+        public string ComponentTypeName;
+        public string Namespace;
+        public string StateLabel;            // "Singleton" / "Scoped · live"
+        public readonly List<string> Contracts = new();
+        public Type ResolvedType;          // for origin + exact script lookup
+        public string TypeFullName;
+        public string Origin;              // "com.aceland.library 2.2.3"
+    }
+
+    public sealed class GraphEdge
+    {
+        public string FromId;
+        public string ToId;
+        public EdgeKind Kind;
+        public string Label;
+    }
+
+    public sealed class InjectionGraph
+    {
+        public string Context = "";                                    // scene path or "Runtime"
+        public readonly List<GraphNode> Nodes = new();
+        public readonly List<GraphEdge> Edges = new();
+        public readonly List<GraphGroup> Groups = new();
+
+        private readonly Dictionary<string, GraphNode> _byId = new();
+        private readonly Dictionary<string, GraphGroup> _groupsById = new();
+        
+        public int WarningCount => Groups.Count(g => g.IsWarning);
+        public int IssueCount   => ErrorCount + WarningCount;
+        
+        public GraphGroup ParentGroupOf(GraphGroup group)
+        {
+            var edge = Edges.FirstOrDefault(e => e.Kind == EdgeKind.ScopeParent && e.FromId == group.Id);
+            return edge != null ? FindGroup(edge.ToId) : null;
+        }
+        
+        public GraphGroup AddGroup(GraphGroup group)
+        {
+            if (_groupsById.TryGetValue(group.Id, out var existing)) return existing;
+            _groupsById[group.Id] = group;
+            Groups.Add(group);
+            return group;
+        }
+
+        public GraphNode Add(GraphNode node)
+        {
+            if (_byId.TryGetValue(node.Id, out var existing)) return existing;
+            _byId[node.Id] = node;
+            Nodes.Add(node);
+            return node;
+        }
+
+        public GraphNode Find(string id) => _byId.GetValueOrDefault(id);
+        
+        public GraphGroup FindGroup(string id) => _groupsById.GetValueOrDefault(id);
+
+        public GraphGroup GroupOf(GraphNode node) => node?.OwnerScopeId != null ? FindGroup(node.OwnerScopeId) : null;
+
+        /// <summary>What this node needs (outgoing resolve edges).</summary>
+        public IEnumerable<GraphNode> DependenciesOf(string nodeId)
+            => Edges.Where(e => e.FromId == nodeId && e.Kind != EdgeKind.ScopeParent &&
+                                e.Kind != EdgeKind.Provides)
+                .Select(e => Find(e.ToId)).Where(n => n != null);
+
+        public void Connect(string from, string to, EdgeKind kind, string label = null)
+        {
+            if (from == null || to == null) return;
+            Edges.Add(new GraphEdge { FromId = from, ToId = to, Kind = kind, Label = label });
+        }
+
+        public int ErrorCount => Nodes.Count(n => n.HasError);
+
+        public IEnumerable<GraphNode> OfKind(NodeKind kind) => Nodes.Where(n => n.Kind == kind);
+
+        public IEnumerable<GraphNode> ConsumersOf(string registrationId)
+            => Edges.Where(e => e.ToId == registrationId &&
+                                (e.Kind == EdgeKind.Resolves || e.Kind == EdgeKind.Deferred))
+                    .Select(e => Find(e.FromId))
+                    .Where(n => n != null);
+
+        // stable id helpers
+        public static string ScopeId(IObjectResolver r) => "scope:" + r.GetHashCode().ToString("x");
+        public static string RegId(int serial) => "reg:" + serial;
+        public static string ConsumerId(Type t, string path) => "use:" + t.FullName + "@" + path;
+        public static string MissingId(Type contract, object id)
+            => "miss:" + contract.FullName + (id != null ? "#" + id : "");
+    }
+}

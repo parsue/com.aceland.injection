@@ -1,7 +1,6 @@
 ﻿// UnityBuilderExtensions.cs
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using Object = UnityEngine.Object;
 
 namespace AceLand.Injection
 {

@@ -7,14 +7,14 @@ using UnityEngine;
 namespace AceLand.Injection
 {
     /// <summary>Process-wide container. Packages publish services here; anything can consume them.</summary>
+    // ReSharper disable once InconsistentNaming
     public static class DI
     {
-        static Container _global;
-        static EntryPointRunner _runner;
-        static readonly List<(int order, Action<IContainerBuilder> configure)> Pending =
-            new List<(int, Action<IContainerBuilder>)>();
+        private static Container _global;
+        private static EntryPointRunner _runner;
+        private static readonly List<(int order, Action<IContainerBuilder> configure)> pendingList = new();
 
-        public static bool IsGlobalBuilt => _global != null && !_global.IsDisposed;
+        public static bool IsGlobalBuilt => _global is { IsDisposed: false };
 
         public static IObjectResolver Global
         {
@@ -35,7 +35,7 @@ namespace AceLand.Injection
                 throw new InjectionException(
                     "Global container already built. Configure earlier (RuntimeInitializeLoadType." +
                     "AfterAssembliesLoaded), use an IGlobalInstaller, or DI.Global.CreateScope(...).");
-            Pending.Add((order, configure));
+            pendingList.Add((order, configure));
         }
 
         public static T Resolve<T>(object id = null) => Global.Resolve<T>(id);
@@ -55,7 +55,7 @@ namespace AceLand.Injection
 
         // ------------------------------------------------------------------
 
-        static ContainerBuilder CreateGlobalBuilder(bool validationOnly)
+        private static ContainerBuilder CreateGlobalBuilder(bool validationOnly)
         {
             var builder = new ContainerBuilder { SkipEntryPointActivation = validationOnly };
             foreach (var installer in GlobalInstallerScanner.Discover())
@@ -64,17 +64,18 @@ namespace AceLand.Injection
                 catch (Exception e)
                 { Debug.LogError($"[Injection] Global installer '{installer.GetType().Name}' failed: {e}"); }
             }
-            var pending = new List<(int, Action<IContainerBuilder>)>(Pending);
+            var pending = new List<(int, Action<IContainerBuilder>)>(pendingList);
             pending.Sort((a, b) => a.Item1.CompareTo(b.Item1));
             foreach (var (_, cfg) in pending) cfg(builder);
             return builder;
         }
 
-        static void BuildGlobal()
+        private static void BuildGlobal()
         {
             var builder = CreateGlobalBuilder(false);
-            Pending.Clear();
+            pendingList.Clear();
             _global = (Container)builder.Build();
+            _global.Label = "DI.Global";
 
             if (Application.isPlaying && builder.EntryPointTypes.Count > 0)
             {
@@ -89,19 +90,19 @@ namespace AceLand.Injection
         public static IObjectResolver CreateValidationContainer() => CreateGlobalBuilder(true).Build();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics()             // domain-reload-off safety
+        private static void ResetStatics()             // domain-reload-off safety
         {
             _global?.Dispose();
             _global = null;
             _runner = null;
-            Pending.Clear();
+            pendingList.Clear();
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
-        static void InstallBridge() => InjectionBridge.SetGlobalProvider(() => _global);
+        private static void InstallBridge() => InjectionBridge.SetGlobalProvider(() => _global);
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-        static void Bootstrap()
+        private static void Bootstrap()
         {
             if (!IsGlobalBuilt) BuildGlobal();
             Application.quitting -= DisposeGlobal;

@@ -13,27 +13,61 @@ namespace AceLand.Injection
     [AddComponentMenu("AceLand/Injection/Lifetime Scope")]
     public class LifetimeScope : MonoBehaviour
     {
-        [SerializeField] LifetimeScope parentScope;
-        [SerializeField] List<MonoBehaviour> installers = new List<MonoBehaviour>();
-        [SerializeField] List<ScriptableObject> assetInstallers = new List<ScriptableObject>();
-        [SerializeField] InjectionTarget injectionTarget = InjectionTarget.Scene;
-        [SerializeField] bool dontDestroyOnLoad;
+        [SerializeField] private LifetimeScope parentScope;
+        [SerializeField] private List<MonoBehaviour> installers = new List<MonoBehaviour>();
+        [SerializeField] private List<ScriptableObject> assetInstallers = new List<ScriptableObject>();
+        [SerializeField] private InjectionTarget injectionTarget = InjectionTarget.Scene;
+        [SerializeField] private bool dontDestroyOnLoad;
+        [Tooltip("When no scope is found in parents, fall back to the persistent (DontDestroyOnLoad) scope.")]
+        [SerializeField]
+        private bool autoParentToPersistentScope = true;
 
         public IObjectResolver Resolver { get; private set; }
         public bool IsBuilt => Resolver != null;
 
-        EntryPointRunner _runner;
+        private EntryPointRunner _runner;
+        private Scene _originScene;
+        private static LifetimeScope _persistent;
+
+        private Scene TargetScene => _originScene.IsValid() ? _originScene : gameObject.scene;
+        
+        /// <summary>Inspector setting, exposed for tooling.</summary>
+        public InjectionTarget InjectionTargetMode => injectionTarget;
+
+        /// <summary>True when this scope survives scene loads.</summary>
+        public bool IsPersistent => dontDestroyOnLoad;
+
+        /// <summary>The DontDestroyOnLoad scope, if one exists.</summary>
+        public static LifetimeScope Persistent => _persistent != null ? _persistent : null;
+        
         /// <summary>Completes when this scope's IAsyncStartable entry points are done.</summary>
         public Task StartupTask => _runner != null ? _runner.StartupTask : Task.CompletedTask;
 
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics() => _persistent = null;    // domain-reload-off safety
+
         protected virtual void Awake()
         {
-            if (dontDestroyOnLoad) { transform.SetParent(null, true); DontDestroyOnLoad(gameObject); }
-            if (Resolver == null) Build();
+            _originScene = gameObject.scene;
+            
+            if (dontDestroyOnLoad)
+            {
+                transform.SetParent(null, true);
+                DontDestroyOnLoad(gameObject);
+
+                if (_persistent != null && _persistent != this)
+                    Debug.LogWarning($"[Injection] '{name}' replaces '{_persistent.name}' as the " +
+                                     "persistent scope. Only one DontDestroyOnLoad scope is supported.", this);
+                _persistent = this;
+            }
+            
+            if (Resolver == null)
+                Build();
         }
 
         protected virtual void OnDestroy()
         {
+            if (_persistent == this) _persistent = null;
             Resolver?.Dispose();
             Resolver = null;
         }
@@ -44,7 +78,8 @@ namespace AceLand.Injection
 
             var builder = CreateBuilder(ResolveParentResolver(), false);
             Resolver = builder.Build();
-
+            if (Resolver is Container c) c.Label = $"{name} ({TargetScene.name})";
+    
             if (builder.EntryPointTypes.Count > 0)
             {
                 var instances = new List<object>(builder.EntryPointTypes.Count);
@@ -60,11 +95,11 @@ namespace AceLand.Injection
         public IObjectResolver BuildContainerOnly(IObjectResolver parentOverride = null)
             => CreateBuilder(parentOverride ?? ResolveParentResolver(), true).Build();
 
-        ContainerBuilder CreateBuilder(IObjectResolver parent, bool validationOnly)
+        private ContainerBuilder CreateBuilder(IObjectResolver parent, bool validationOnly)
         {
             var builder = new ContainerBuilder(parent)
             {
-                ContextScene = gameObject.scene,
+                ContextScene = TargetScene,
                 ContextTransform = transform,
                 SkipEntryPointActivation = validationOnly
             };
@@ -78,18 +113,25 @@ namespace AceLand.Injection
         /// <summary>Override to register bindings in code.</summary>
         protected virtual void Configure(IContainerBuilder builder) { }
 
-        IObjectResolver ResolveParentResolver()
+        private IObjectResolver ResolveParentResolver()
         {
-            if (parentScope != null) return parentScope.IsBuilt ? parentScope.Resolver : parentScope.Build();
+            if (parentScope != null)
+                return parentScope.IsBuilt ? parentScope.Resolver : parentScope.Build();
+
             for (var t = transform.parent; t != null; t = t.parent)
             {
                 var s = t.GetComponent<LifetimeScope>();
                 if (s != null) return s.IsBuilt ? s.Resolver : s.Build();
             }
+
+            // ← cross-scene fallback
+            if (autoParentToPersistentScope && _persistent != null && _persistent != this)
+                return _persistent.IsBuilt ? _persistent.Resolver : _persistent.Build();
+
             return DI.Global;
         }
 
-        void PerformInjection()
+        private void PerformInjection()
         {
             switch (injectionTarget)
             {
@@ -97,7 +139,7 @@ namespace AceLand.Injection
                 case InjectionTarget.Children: InjectHierarchy(gameObject); return;
                 case InjectionTarget.Scene:
                 {
-                    var scene = gameObject.scene;
+                    var scene = TargetScene;                         // ← was gameObject.scene
                     if (!scene.IsValid()) { InjectHierarchy(gameObject); return; }
                     foreach (var root in scene.GetRootGameObjects()) InjectHierarchy(root);
                     return;
@@ -105,7 +147,7 @@ namespace AceLand.Injection
             }
         }
 
-        void InjectHierarchy(GameObject root)
+        private void InjectHierarchy(GameObject root)
         {
             foreach (var mb in root.GetComponentsInChildren<MonoBehaviour>(true))
             {
@@ -127,7 +169,7 @@ namespace AceLand.Injection
             return FindSceneRootScope(t.gameObject.scene);
         }
 
-        static LifetimeScope FindSceneRootScope(Scene scene)
+        private static LifetimeScope FindSceneRootScope(Scene scene)
         {
             if (!scene.IsValid()) return null;
             foreach (var root in scene.GetRootGameObjects())

@@ -9,14 +9,14 @@ namespace AceLand.Injection
     [DefaultExecutionOrder(-4000)]
     public sealed class EntryPointRunner : MonoBehaviour
     {
-        readonly List<IInitializable> _init = new List<IInitializable>();
-        readonly List<IAsyncStartable> _async = new List<IAsyncStartable>();
-        readonly List<ITickable> _tick = new List<ITickable>();
-        readonly List<IFixedTickable> _fixed = new List<IFixedTickable>();
-        readonly List<ILateTickable> _late = new List<ILateTickable>();
+        private readonly List<IInitializable> _init = new List<IInitializable>();
+        private readonly List<IAsyncStartable> _async = new List<IAsyncStartable>();
+        private readonly List<ITickable> _tick = new List<ITickable>();
+        private readonly List<IFixedTickable> _fixed = new List<IFixedTickable>();
+        private readonly List<ILateTickable> _late = new List<ILateTickable>();
 
-        CancellationTokenSource _cts;
-        bool _started;
+        private CancellationTokenSource _cts;
+        private bool _started;
 
         /// <summary>Completes when every IAsyncStartable of this scope finished (or faulted).</summary>
         public Task StartupTask { get; private set; } = Task.CompletedTask;
@@ -32,7 +32,7 @@ namespace AceLand.Injection
             return runner;
         }
 
-        static IEnumerable<object> Order(IEnumerable<object> src)
+        private static IEnumerable<object> Order(IEnumerable<object> src)
         {
             var list = new List<object>(src);
             list.Sort((a, b) =>
@@ -49,23 +49,26 @@ namespace AceLand.Injection
             if (ep is ILateTickable l) _late.Add(l);
         }
 
-        void Start()
+        private void Start()
         {
             if (_started) return;
             _started = true;
             _cts = new CancellationTokenSource();
 
-            for (int i = 0; i < _init.Count; i++) { var x = _init[i]; Safe(x.Initialize); }
+            foreach (var x in _init)
+            {
+                Safe(x.Initialize);
+            }
             if (_async.Count > 0) StartupTask = RunAsyncStartablesAsync(_cts.Token);
         }
 
-        async Task RunAsyncStartablesAsync(CancellationToken ct)
+        private async Task RunAsyncStartablesAsync(CancellationToken ct)
         {
             // sequential: deterministic ordering; use Task.WhenAll below if you prefer parallel
-            for (int i = 0; i < _async.Count; i++)
+            foreach (var t in _async)
             {
                 if (ct.IsCancellationRequested) return;
-                var startable = _async[i];
+                var startable = t;
                 try
                 {
                     var task = startable.StartAsync(ct);
@@ -79,17 +82,37 @@ namespace AceLand.Injection
             }
         }
 
-        void Update()      { for (int i = 0; i < _tick.Count; i++)  { var x = _tick[i];  Safe(x.Tick); } }
-        void FixedUpdate() { for (int i = 0; i < _fixed.Count; i++) { var x = _fixed[i]; Safe(x.FixedTick); } }
-        void LateUpdate()  { for (int i = 0; i < _late.Count; i++)  { var x = _late[i];  Safe(x.LateTick); } }
+        private void Update()
+        {
+            foreach (var x in _tick)
+            {
+                Safe(x.Tick);
+            }
+        }
 
-        void OnDestroy()
+        private void FixedUpdate()
+        {
+            foreach (var x in _fixed)
+            {
+                Safe(x.FixedTick);
+            }
+        }
+
+        private void LateUpdate()
+        {
+            foreach (var x in _late)
+            {
+                Safe(x.LateTick);
+            }
+        }
+
+        private void OnDestroy()
         {
             try { _cts?.Cancel(); } catch { /* ignored */ }
             _cts?.Dispose();
             _cts = null;
         }
 
-        static void Safe(Action a) { try { a(); } catch (Exception e) { Debug.LogException(e); } }
+        private static void Safe(Action a) { try { a(); } catch (Exception e) { Debug.LogException(e); } }
     }
 }

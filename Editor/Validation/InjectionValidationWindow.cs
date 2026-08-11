@@ -1,17 +1,16 @@
-﻿using System.Linq;
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 
-namespace AceLand.Injection.Editor
+namespace AceLand.Injection.Editor.Validation
 {
     public sealed class InjectionValidationWindow : EditorWindow
     {
-        ValidationReport _report;
-        Vector2 _scroll;
-        bool _showErrors = true, _showWarnings = true, _showInfo;
-        string _filter = "";
+        private ValidationReport _report;
+        private Vector2 _scroll;
+        private bool _showErrors = true, _showWarnings = true, _showInfo;
+        private string _filter = "";
 
-        [MenuItem("Window/AceLand/Injection/Validation %#i")]
+        [MenuItem("Tools/AceLand/Injection/Validation %#i")]
         public static void Open()
         {
             var w = GetWindow<InjectionValidationWindow>("Injection Validation");
@@ -19,7 +18,7 @@ namespace AceLand.Injection.Editor
             w.Show();
         }
 
-        void OnGUI()
+        private void OnGUI()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
@@ -81,7 +80,7 @@ namespace AceLand.Injection.Editor
                         }
                         if (!string.IsNullOrEmpty(issue.Context) && GUILayout.Button("Open", GUILayout.Width(52)))
                         {
-                            var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(issue.Context);
+                            var asset = AssetDatabase.LoadAssetAtPath<Object>(issue.Context);
                             if (asset != null) AssetDatabase.OpenAsset(asset);
                         }
                     }
@@ -92,7 +91,7 @@ namespace AceLand.Injection.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        void Run()
+        private void Run()
         {
             if (!UnityEditor.SceneManagement.EditorSceneManager
                     .SaveCurrentModifiedScenesIfUserWantsTo()) return;

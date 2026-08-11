@@ -9,9 +9,9 @@ namespace AceLand.Injection.Editor
     /// </summary>
     internal static class PluginImporterCompat
     {
-        const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        private const BindingFlags FLAGS = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-        static readonly string[] SerializedNames =
+        private static readonly string[] serializedNames =
         {
             "m_ValidateReferences",
             "validateReferences",
@@ -22,7 +22,7 @@ namespace AceLand.Injection.Editor
             value = false;
             if (importer == null) return false;
 
-            var property = typeof(PluginImporter).GetProperty("ValidateReferences", Flags);
+            var property = typeof(PluginImporter).GetProperty("ValidateReferences", FLAGS);
             if (property != null && property.CanRead)
             {
                 try
@@ -34,7 +34,7 @@ namespace AceLand.Injection.Editor
             }
 
             var serialized = new SerializedObject(importer);
-            foreach (var name in SerializedNames)
+            foreach (var name in serializedNames)
             {
                 var prop = serialized.FindProperty(name);
                 if (prop == null) continue;
@@ -50,7 +50,7 @@ namespace AceLand.Injection.Editor
             how = null;
             if (importer == null) return false;
 
-            var property = typeof(PluginImporter).GetProperty("ValidateReferences", Flags);
+            var property = typeof(PluginImporter).GetProperty("ValidateReferences", FLAGS);
             if (property != null && property.CanWrite)
             {
                 try
@@ -63,7 +63,7 @@ namespace AceLand.Injection.Editor
             }
 
             var serialized = new SerializedObject(importer);
-            foreach (var name in SerializedNames)
+            foreach (var name in serializedNames)
             {
                 var prop = serialized.FindProperty(name);
                 if (prop == null) continue;

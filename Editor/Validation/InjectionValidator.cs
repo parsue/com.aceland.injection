@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
-namespace AceLand.Injection.Editor
+namespace AceLand.Injection.Editor.Validation
 {
     public enum IssueSeverity { Info, Warning, Error }
 
@@ -29,7 +29,7 @@ namespace AceLand.Injection.Editor
 
     public sealed class ValidationReport
     {
-        public readonly List<ValidationIssue> Issues = new List<ValidationIssue>();
+        public readonly List<ValidationIssue> Issues = new();
         public int ScenesChecked, ScopesBuilt, ObjectsChecked, DependenciesChecked;
         public double DurationSeconds;
 
@@ -64,7 +64,7 @@ namespace AceLand.Injection.Editor
                     return report;                          // nothing else can be checked
                 }
 
-                foreach (var path in GetScenePaths(settings.includeScenesNotInBuildSettings))
+                foreach (var path in GetScenePaths(settings))
                     ValidateScene(path, global, report, settings);
 
                 if (settings.validatePrefabs)
@@ -74,7 +74,7 @@ namespace AceLand.Injection.Editor
             {
                 global?.Dispose();
 
-                if (originalSetup != null && originalSetup.Length > 0)
+                if (originalSetup is { Length: > 0 })
                 {
                     try { EditorSceneManager.RestoreSceneManagerSetup(originalSetup); }
                     catch (Exception e) { Debug.LogWarning("[Injection] could not restore scenes: " + e.Message); }
@@ -111,20 +111,50 @@ namespace AceLand.Injection.Editor
 
         // ------------------------------------------------------------------ scenes
 
-        static IEnumerable<string> GetScenePaths(bool includeAll)
+        private static IEnumerable<string> GetScenePaths(InjectionValidationSettings settings)
         {
-            if (includeAll)
-                return AssetDatabase.FindAssets("t:Scene")
-                    .Select(AssetDatabase.GUIDToAssetPath)
-                    .Where(p => !string.IsNullOrEmpty(p) && p.StartsWith("Assets/"))
-                    .Distinct();
-
-            return EditorBuildSettings.scenes
+            var buildScenes = EditorBuildSettings.scenes
                 .Where(s => s.enabled && !string.IsNullOrEmpty(s.path))
                 .Select(s => s.path);
+
+            IEnumerable<string> candidates;
+
+            if (settings.includeScenesNotInBuildSettings)
+            {
+                candidates = AssetDatabase.FindAssets("t:Scene")
+                    .Select(AssetDatabase.GUIDToAssetPath)
+                    .Where(p => !string.IsNullOrEmpty(p) && p.StartsWith("Assets/"));
+            }
+            else
+            {
+                var forced = AssetDatabase.FindAssets("t:Scene")
+                    .Select(AssetDatabase.GUIDToAssetPath)
+                    .Where(p => !string.IsNullOrEmpty(p) && p.StartsWith("Assets/"))
+                    .Where(p => Matches(p, settings.alwaysIncludeScenePathFilters));
+
+                candidates = buildScenes.Concat(forced);
+            }
+
+            return candidates
+                .Where(p => !Matches(p, settings.ignoredScenePathFilters))
+                .Distinct()
+                .OrderBy(p => p, StringComparer.Ordinal);
         }
 
-        static void ValidateScene(string path, IObjectResolver global, ValidationReport report,
+        private static bool Matches(string path, string[] filters)
+        {
+            if (filters == null || filters.Length == 0) return false;
+            var normalised = path.Replace('\\', '/');
+            foreach (var filter in filters)
+            {
+                if (string.IsNullOrWhiteSpace(filter)) continue;
+                if (normalised.IndexOf(filter.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        private static void ValidateScene(string path, IObjectResolver global, ValidationReport report,
                                   InjectionValidationSettings settings)
         {
             var containers = new List<IObjectResolver>();
@@ -194,7 +224,7 @@ namespace AceLand.Injection.Editor
         // ------------------------------------------------------------------ scope chain helpers
 
         /// <summary>Resolver of the nearest already-built ancestor scope, or the fallback.</summary>
-        static IObjectResolver ParentResolverFor(LifetimeScope scope,
+        private static IObjectResolver ParentResolverFor(LifetimeScope scope,
                                                  Dictionary<LifetimeScope, IObjectResolver> built,
                                                  IObjectResolver fallback)
         {
@@ -208,7 +238,7 @@ namespace AceLand.Injection.Editor
         }
 
         /// <summary>Resolver that would inject the object at runtime.</summary>
-        static IObjectResolver OwningResolver(Transform transform,
+        private static IObjectResolver OwningResolver(Transform transform,
                                               Dictionary<LifetimeScope, IObjectResolver> built,
                                               IObjectResolver sceneRoot)
         {
@@ -221,7 +251,7 @@ namespace AceLand.Injection.Editor
             return sceneRoot;
         }
 
-        static int Depth(Transform t)
+        private static int Depth(Transform t)
         {
             int depth = 0;
             for (var c = t.parent; c != null; c = c.parent) depth++;
@@ -230,7 +260,7 @@ namespace AceLand.Injection.Editor
 
         // ------------------------------------------------------------------ prefabs
 
-        static void ValidatePrefabs(IObjectResolver global, ValidationReport report,
+        private static void ValidatePrefabs(IObjectResolver global, ValidationReport report,
                                     InjectionValidationSettings settings)
         {
             foreach (var guid in AssetDatabase.FindAssets("t:Prefab"))
@@ -251,7 +281,7 @@ namespace AceLand.Injection.Editor
 
         // ------------------------------------------------------------------ one object
 
-        static void ValidateObject(MonoBehaviour behaviour, IObjectResolver resolver, string context,
+        private static void ValidateObject(MonoBehaviour behaviour, IObjectResolver resolver, string context,
                                    ValidationReport report, InjectionValidationSettings settings,
                                    bool isPrefab = false)
         {
@@ -305,7 +335,7 @@ namespace AceLand.Injection.Editor
             }
         }
 
-        static bool ComponentPresent(MonoBehaviour behaviour, InjectDependency dependency)
+        private static bool ComponentPresent(MonoBehaviour behaviour, InjectDependency dependency)
         {
             var type = ElementType(dependency.ContractType);
             if (type == null) return true;
@@ -319,29 +349,29 @@ namespace AceLand.Injection.Editor
             }
         }
 
-        static Type ElementType(Type type)
+        private static Type ElementType(Type type)
         {
             if (type.IsArray) return type.GetElementType();
             if (type.IsGenericType) return type.GetGenericArguments()[0];
             return type;
         }
 
-        static string ElementName(Type type) => ElementType(type)?.Name ?? type.Name;
+        private static string ElementName(Type type) => ElementType(type)?.Name ?? type.Name;
 
-        static string HierarchyPath(Transform t)
+        private static string HierarchyPath(Transform t)
         {
             var path = t.name;
             for (var c = t.parent; c != null; c = c.parent) path = c.name + "/" + path;
             return path;
         }
 
-        static ValidationIssue Issue(IssueSeverity severity, string context, string objectPath, string typeName,
+        private static ValidationIssue Issue(IssueSeverity severity, string context, string objectPath, string typeName,
                                      string memberName, string contractName, string message,
                                      UnityEngine.Object target)
-            => new ValidationIssue
-            {
-                Severity = severity, Context = context, ObjectPath = objectPath, TypeName = typeName,
-                MemberName = memberName, ContractName = contractName, Message = message, Target = target
-            };
+        => new()
+        {
+            Severity = severity, Context = context, ObjectPath = objectPath, TypeName = typeName,
+            MemberName = memberName, ContractName = contractName, Message = message, Target = target
+        };
     }
 }

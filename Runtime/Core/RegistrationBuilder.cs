@@ -45,7 +45,7 @@ namespace AceLand.Injection
         { Params().Add(new ParameterOverride { Type = t, Value = f }); return this; }
 
         public IRegistrationBuilder InjectMember(string name, object value = null, bool optional = false)
-            => InjectMember(name, value == null ? (Func<IObjectResolver, object>)null : _ => value, optional);
+            => InjectMember(name, value == null ? null : _ => value, optional);
 
         public IRegistrationBuilder InjectMember(string name, Func<IObjectResolver, object> f, bool optional = false)
         {

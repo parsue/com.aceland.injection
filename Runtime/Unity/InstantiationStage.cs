@@ -7,7 +7,7 @@ namespace AceLand.Injection
 {
     internal static class InstantiationStage
     {
-        static GameObject _stage;
+        private static GameObject _stage;
 
         internal static Transform Stage
         {
