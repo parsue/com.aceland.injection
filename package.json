@@ -1,6 +1,6 @@
 ﻿{
   "name": "com.aceland.injection",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "displayName": "AceLand Injection",
   "description": "Dependency injection for Unity Components and plain C# objects. Global cross-package container, source-generated injectors, async entry points, object pooling, build-time validation.",
   "unity": "2021.3",

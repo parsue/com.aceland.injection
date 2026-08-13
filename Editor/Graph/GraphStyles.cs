@@ -24,6 +24,8 @@ namespace AceLand.Injection.Editor.Graph
         public static readonly Color SelectedRing = Color.white;
         public static readonly Color LiveDot      = new(0.42f, 0.84f, 0.50f);
         public static readonly Color ErrorHue     = new(0.90f, 0.35f, 0.35f);
+        public static readonly Color InstallerBg     = new Color(0.196f, 0.204f, 0.243f);
+        public static readonly Color InstallerAccent = new Color(0.72f, 0.66f, 0.42f);
 
         // ── edges ──
         public const float EdgeWidth           = 3.2f;   // default connection

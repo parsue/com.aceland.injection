@@ -16,7 +16,7 @@ namespace AceLand.Injection
         private static object ResolveBoxed(object owner, ComponentSource source, Type memberType,
                                    bool optional, bool includeInactive, string memberName)
         {
-            if (!(owner is Component c))
+            if (owner is not Component c)
                 throw new InjectionException(
                     $"{owner?.GetType().Name}.{memberName}: component attributes require a Component.");
             return Resolve(c, source, memberType, optional, includeInactive, memberName);

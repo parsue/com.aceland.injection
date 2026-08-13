@@ -91,7 +91,8 @@ namespace AceLand.Injection.Editor.Graph
                             ObjectPath = HierarchyPath(scope.transform),
                             ComponentTypeName = scope.GetType().FullName,
                         });
-                        group.Notes.Add(e.Message);
+                        
+                        group.Notes.Add(GraphNote.Error(e.Message));
                     }
                 }
 
@@ -116,6 +117,7 @@ namespace AceLand.Injection.Editor.Graph
                 global?.Dispose();
             }
 
+            FinalizeScopeNotes(graph);
             return graph;
         }
 
@@ -146,13 +148,14 @@ namespace AceLand.Injection.Editor.Graph
                 AddConsumer(graph, behaviour, SafeResolverFor(behaviour.gameObject));
             }
 
+            FinalizeScopeNotes(graph);
             return graph;
         }
 
         // ------------------------------------------------------------ nodes
 
         private static void AddScope(InjectionGraph graph, IObjectResolver resolver, IObjectResolver parent,
-                     LifetimeScope source = null)
+                                     LifetimeScope source = null)
         {
             if (resolver is not IContainerIntrospection introspect) return;
 
@@ -179,17 +182,67 @@ namespace AceLand.Injection.Editor.Graph
             var parentId = graph.ExistingScopeId(parent);
             if (parentId != null)
                 graph.Connect(id, parentId, EdgeKind.ScopeParent);
+            
+            var installerIds = new string[introspect.Installers.Count];
 
-            var used = new Dictionary<string, int>();
+            foreach (var info in introspect.Installers)
+            {
+                var nodeId = InjectionGraph.InstallerId(id, info.Key);
+                var asset = info.Asset as Object;
+                var component = asset as Component;
+
+                var node = graph.Add(new GraphNode
+                {
+                    Id = nodeId,
+                    Kind = NodeKind.Installer,
+                    Title = info.Name,
+                    Subtitle = "installer",
+                    Namespace = info.Type?.Namespace,
+                    OwnerScopeId = id,
+                    Depth = depth,
+                    ResolvedType = info.Type,
+                    TypeFullName = info.Type?.FullName,
+                    Origin = GraphOrigin.For(info.Type),
+                    Target = asset,
+                    ScenePath = component != null ? component.gameObject.scene.path : null,
+                    ObjectPath = component != null ? HierarchyPath(component.transform) : null,
+                    ComponentTypeName = info.Type?.FullName
+                });
+
+                group.Nodes.Add(node);
+                graph.Connect(id, nodeId, EdgeKind.Provides);
+            }
 
             foreach (var reg in introspect.LocalRegistrations)
             {
                 if (reg.Kind == RegistrationKind.Container) continue;
-
-                if (reg is { Kind: RegistrationKind.Instance, ImplementationType: not null } &&
+                if (reg.Kind == RegistrationKind.Instance && reg.ImplementationType != null &&
                     typeof(LifetimeScope).IsAssignableFrom(reg.ImplementationType)) continue;
 
-                var nodeId = graph.RegistrationId(id, reg, used);
+                var nodeId = graph.RegistrationKey(id, reg);
+                graph.MapSerial(reg.Serial, nodeId);
+
+                var installerId = reg.Source.HasValue
+                    ? InjectionGraph.InstallerId(id, reg.Source.Value.Key)
+                    : null;
+                var installerNode = installerId != null ? graph.Find(installerId) : null;
+
+                var existing = graph.Find(nodeId);
+                if (existing != null)
+                {
+                    existing.MergeCount++;
+                    if (reg.IsInstantiated) existing.InstantiatedCount++;
+                    existing.IsInstantiated = existing.InstantiatedCount > 0;
+                    existing.StateLabel = $"{existing.InstantiatedCount}/{existing.MergeCount} live";
+
+                    if (installerNode != null)
+                    {
+                        installerNode.ProvidedCount++;
+                        if (!existing.InstallerNodeIds.Contains(installerId))     // merged node → many installers
+                            existing.InstallerNodeIds.Add(installerId);
+                    }
+                    continue;
+                }
 
                 var node = graph.Add(new GraphNode
                 {
@@ -199,6 +252,8 @@ namespace AceLand.Injection.Editor.Graph
                     Namespace = reg.ImplementationType?.Namespace,
                     OwnerScopeId = id,
                     Depth = depth,
+                    MergeCount = 1,
+                    InstantiatedCount = reg.IsInstantiated ? 1 : 0,
                     IsInstantiated = reg.IsInstantiated,
                     StateLabel = reg.IsInstantiated ? "live" : "declared",
                     ResolvedType = reg.ImplementationType,
@@ -208,35 +263,77 @@ namespace AceLand.Injection.Editor.Graph
 
                 node.Subtitle = $"{reg.Lifetime}{(reg.Id != null ? $" · #{reg.Id}" : "")}";
 
-                foreach (var contract in reg.ContractTypes)
-                    if (contract != reg.ImplementationType) node.Contracts.Add(contract.Name);
-
-                switch (reg.Kind)
+                if (installerNode != null)
                 {
-                    case RegistrationKind.Factory:
-                        node.Details.Add("factory (opaque)");
-                        break;
-                    case RegistrationKind.Instance:
-                        node.Details.Add("pre-built instance");
-                        break;
+                    installerNode.ProvidedCount++;
+                    node.InstallerNodeIds.Add(installerId);
+                    graph.Connect(installerId, nodeId, EdgeKind.Installs);
                 }
+
+                foreach (var contract in reg.ContractTypes)
+                    if (contract != reg.ImplementationType) node.Contracts.Add(TypeNames.Short(contract));
+
+                if (reg.Kind == RegistrationKind.Factory) node.Details.Add("factory (opaque)");
+                if (reg.Kind == RegistrationKind.Instance) node.Details.Add("pre-built instance");
 
                 group.Nodes.Add(node);
                 graph.Connect(id, nodeId, EdgeKind.Provides);
             }
 
             LinkServiceDependencies(graph, introspect);
-
-            if (source != null && group.Nodes.Count == 0)
+        }
+        
+        /// <summary>
+        /// Runs after every scope and consumer is added — an empty scope is only pointless
+        /// if nothing depends on it for injection.
+        /// </summary>
+        static void FinalizeScopeNotes(InjectionGraph graph)
+        {
+            foreach (var group in graph.Groups)
             {
-                group.IsWarning = true;
-                if (source.InjectionTargetMode == InjectionTarget.None)
-                    group.Notes.Add("No registrations and Injection Target = None. " +
-                                    "This scope does nothing — safe to delete.");
+                if (!group.IsScope) continue;
+                if (group.IsError) continue;
+                if (group.Target is not LifetimeScope scope) continue;
+
+                group.Notes.Clear();
+                group.IsWarning = false;
+
+                var injected = 0;
+                foreach (var node in graph.Nodes)
+                    if (node.Kind == NodeKind.Consumer && node.InjectorScopeId == group.Id) injected++;
+                group.InjectedCount = injected;
+
+                var registrations = group.Nodes.Count(n => n.Kind == NodeKind.Registration);
+                var deadInstallers = group.Nodes.Count(n => n.Kind == NodeKind.Installer && n.ProvidedCount == 0);
+
+                if (scope.IsPersistent)
+                    group.Notes.Add(GraphNote.Info("Persistent (DontDestroyOnLoad)."));
+
+                if (deadInstallers > 0)
+                    group.Notes.Add(GraphNote.Warning(
+                        $"{deadInstallers} installer(s) registered nothing — dead code, or an early return."));
+
+                if (registrations > 0) continue;                    // ← was group.Nodes.Count
+
+                var mode = scope.InjectionTargetMode;
+
+                if (mode == InjectionTarget.None)
+                {
+                    group.IsWarning = true;
+                    group.Notes.Add(GraphNote.Warning(
+                        "No registrations and Injection Target = None. This scope does nothing — safe to delete."));
+                }
+                else if (injected == 0)
+                {
+                    group.IsWarning = true;
+                    group.Notes.Add(GraphNote.Warning(
+                        $"No registrations and no objects injected ({mode}). Nothing depends on this scope."));
+                }
                 else
-                    group.Notes.Add($"No registrations. Only provides injection " +
-                                    $"({source.InjectionTargetMode}) and a disposal boundary.");
-                if (source.IsPersistent) group.Notes.Add("Persistent (DontDestroyOnLoad).");
+                {
+                    group.Notes.Add(GraphNote.Info(
+                        $"Injects {injected} object(s) ({mode}) and provides a disposal boundary."));
+                }
             }
         }
 
@@ -248,7 +345,10 @@ namespace AceLand.Injection.Editor.Graph
                 if (reg.Kind != RegistrationKind.Type || reg.ImplementationType == null) continue;
 
                 var nodeId = graph.RegistrationIdBySerial(reg.Serial);      // ← lookup, not construct
-                if (nodeId == null || graph.Find(nodeId) == null) continue;
+                if (nodeId == null) continue;
+                
+                var owner = graph.Find(nodeId);
+                if (owner == null) continue;
 
                 IReadOnlyList<InjectDependency> dependencies;
                 try { dependencies = InjectionMetadata.GetDependencies(reg.ImplementationType); }
@@ -271,7 +371,7 @@ namespace AceLand.Injection.Editor.Graph
                     {
                         var missingId = InjectionGraph.MissingId(contract, dependency.Id);
                         EnsureMissing(graph, missingId, contract);
-                        graph.Find(nodeId).HasError = true;
+                        owner.HasError = true;
                         graph.Connect(nodeId, missingId, EdgeKind.Missing, dependency.MemberName);
                     }
                 }
@@ -295,7 +395,7 @@ namespace AceLand.Injection.Editor.Graph
             {
                 Id = id,
                 Kind = NodeKind.Unresolved,
-                Title = contract.Name,
+                Title = TypeNames.Short(contract),
                 Namespace = contract.Namespace,
                 Subtitle = "NOT REGISTERED",
                 OwnerScopeId = group.Id,
@@ -324,9 +424,6 @@ namespace AceLand.Injection.Editor.Graph
                 Subtitle = "scene MonoBehaviours",
                 ColorIndex = 4,
                 Depth = int.MaxValue,
-                ResolvedType = type,
-                TypeFullName = type.FullName,
-                Origin = GraphOrigin.For(type)
             });
 
             var path = HierarchyPath(behaviour.transform);
@@ -345,6 +442,8 @@ namespace AceLand.Injection.Editor.Graph
                 ObjectPath = path,
                 ComponentTypeName = type.FullName
             });
+            consumer.InjectorScopeId = graph.ExistingScopeId(resolver);
+            
             group.Nodes.Add(consumer);
 
             var introspect = resolver as IContainerIntrospection;
@@ -384,7 +483,7 @@ namespace AceLand.Injection.Editor.Graph
 
         // ------------------------------------------------------------ helpers
 
-        static IObjectResolver SafeResolverFor(GameObject go)
+        private static IObjectResolver SafeResolverFor(GameObject go)
         {
             var scope = LifetimeScope.OwningScopeOf(go);      // parents → scene root scope
             if (scope != null && scope.IsBuilt) return scope.Resolver;

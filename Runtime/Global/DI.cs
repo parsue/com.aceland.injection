@@ -60,13 +60,19 @@ namespace AceLand.Injection
             var builder = new ContainerBuilder { SkipEntryPointActivation = validationOnly };
             foreach (var installer in GlobalInstallerScanner.Discover())
             {
-                try { installer.Install(builder); }
+                try
+                {
+                    using (builder.Source(installer)) installer.Install(builder);
+                }
                 catch (Exception e)
                 { Debug.LogError($"[Injection] Global installer '{installer.GetType().Name}' failed: {e}"); }
             }
+
             var pending = new List<(int, Action<IContainerBuilder>)>(pendingList);
             pending.Sort((a, b) => a.Item1.CompareTo(b.Item1));
-            foreach (var (_, cfg) in pending) cfg(builder);
+            foreach (var (order, cfg) in pending)
+                using (builder.Source(null, $"ConfigureGlobal({order})")) cfg(builder);
+            
             return builder;
         }
 

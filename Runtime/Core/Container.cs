@@ -24,12 +24,15 @@ namespace AceLand.Injection
         public bool IsDisposed { get; private set; }
         internal Container Parent => _parent;
         internal IReadOnlyList<Type> EntryPointTypes { get; }
+        internal IReadOnlyList<InstallerInfo> InstallerSources { get; }
+        public IReadOnlyList<InstallerInfo> Installers => InstallerSources;
 
         internal Container(ContainerBuilder builder, Container parent)
         {
             _parent = parent;
             _fallbacks = builder.Fallbacks;
             EntryPointTypes = builder.EntryPointTypes;
+            InstallerSources = builder.Sources;
             parent?._children.Add(this);
 
             var self = new Registration
@@ -450,7 +453,9 @@ namespace AceLand.Injection
             reg.Lifetime,
             reg.Id,
             kind,
-            reg.Instance != null || _instances.ContainsKey(reg));
+            reg.Instance != null || _instances.ContainsKey(reg),
+            reg.Source
+        );
     }
     }
 }

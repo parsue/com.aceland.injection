@@ -28,6 +28,9 @@ namespace AceLand.Injection
 
         internal Container Owner;
         internal ConstructorInfo CachedConstructor;
+        
+        /// <summary>Index into ContainerBuilder.Sources; -1 when unknown.</summary>
+        internal InstallerInfo? Source;
 
         public bool HasExplicitPlan =>
             IgnoreAttributes || ConstructorSignature != null ||

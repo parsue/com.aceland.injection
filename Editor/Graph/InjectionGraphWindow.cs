@@ -158,14 +158,6 @@ namespace AceLand.Injection.Editor.Graph
             var top = EditorStyles.toolbar.fixedHeight;
             var canvas = new Rect(0, top, position.width - INSPECTOR_WIDTH, position.height - top);
             var inspector = new Rect(canvas.xMax, top, INSPECTOR_WIDTH, position.height - top);
-            var autoScan = GUILayout.Toggle(_autoScan,
-                new GUIContent("⤾", "Rescan automatically when the hierarchy changes (edit mode)."),
-                EditorStyles.toolbarButton, GUILayout.Width(26));
-            if (autoScan != _autoScan)
-            {
-                _autoScan = autoScan;
-                EditorPrefs.SetBool(AUTO_SCAN_KEY, _autoScan);
-            }
 
             if (_graph == null)
             {
@@ -189,18 +181,6 @@ namespace AceLand.Injection.Editor.Graph
             HandleInput(canvas);
             DrawCanvas(canvas);
             DrawInspector(inspector);
-            
-            var issues = _graph?.IssueCount ?? 0;
-            var issueStyle = new GUIStyle(EditorStyles.toolbarButton);
-            if ((_graph?.ErrorCount ?? 0) > 0) issueStyle.normal.textColor = GraphStyles.ErrorHue;
-            else if (issues > 0) issueStyle.normal.textColor = new Color(0.95f, 0.78f, 0.42f);
-
-            if (GUILayout.Button($"Issues ({issues})", issueStyle, GUILayout.Width(84)))
-            {
-                _errorsOnly = !_errorsOnly;
-                Layout();
-                FocusFirstIssue();
-            }
         }
 
         private void DrawToolbar()
@@ -240,11 +220,13 @@ namespace AceLand.Injection.Editor.Graph
                     var auto = GUILayout.Toggle(_autoRefresh,
                         new GUIContent("⟳", "Re-scan every second while live."),
                         EditorStyles.toolbarButton, GUILayout.Width(26));
-                    if (auto != _autoRefresh)
+                    var autoScan = GUILayout.Toggle(_autoScan,
+                        new GUIContent("⤾", "Rescan automatically when the hierarchy changes (edit mode)."),
+                        EditorStyles.toolbarButton, GUILayout.Width(26));
+                    if (autoScan != _autoScan)
                     {
-                        _autoRefresh = auto;
-                        EditorPrefs.SetBool(AUTO_KEY, _autoRefresh);
-                        _nextAutoRefresh = 0;
+                        _autoScan = autoScan;
+                        EditorPrefs.SetBool(AUTO_SCAN_KEY, _autoScan);
                     }
                 }
 
@@ -438,9 +420,10 @@ namespace AceLand.Injection.Editor.Graph
 
         private static IEnumerable<GraphNode> OrderedNodes(GraphGroup group)
             => group.Nodes
-                .OrderByDescending(n => n.HasError)
+                .OrderBy(n => n.Kind == NodeKind.Installer ? 0 : 1)
+                .ThenByDescending(n => n.HasError)
                 .ThenBy(n => n.Title, StringComparer.Ordinal)
-                .ThenBy(n => n.Id, StringComparer.Ordinal);        // ← total order
+                .ThenBy(n => n.Id, StringComparer.Ordinal);
 
         private void FrameAll()
         {
@@ -536,8 +519,10 @@ namespace AceLand.Injection.Editor.Graph
             var titleStyle = GraphStyles.GroupTitle;
             titleStyle.normal.textColor = palette.Header;
             titleStyle.fontSize = Mathf.RoundToInt(12f * Mathf.Clamp(_zoom, 0.8f, 1.3f));
-
-            var count = group.Nodes.Count(n => n.Rect.width > 0);
+            
+            var count = group.Nodes
+                .Where(n => n.Rect.width > 0 && n.Kind != NodeKind.Installer)
+                .Sum(n => Mathf.Max(1, n.MergeCount));
             var groupTitle = (group.IsWarning ? "⚠ " : "") + $"{group.Title}  ({count})";
             GUI.Label(header, GraphStyles.Fit(groupTitle, titleStyle, header.width), titleStyle);
 
@@ -551,7 +536,7 @@ namespace AceLand.Injection.Editor.Graph
             GUI.Label(subRect, GraphStyles.Fit("· " + group.Subtitle, subStyle, subRect.width), subStyle);
 
             // empty-body placeholder
-            if (count == 0)
+            if (group.Nodes.Count == 0)
             {
                 var body = new Rect(rect.x + pad, rect.y + (GROUP_HEADER + GROUP_PAD) * _zoom,
                                     rect.width - pad * 2f, EMPTY_BODY_HEIGHT * _zoom);
@@ -570,18 +555,24 @@ namespace AceLand.Injection.Editor.Graph
             var rect = new Rect(ToScreen(node.Rect.position), node.Rect.size * _zoom);
             var group = _graph.GroupOf(node);
             var palette = GraphStyles.Get(group?.ColorIndex ?? 0, node.HasError || (group?.IsError ?? false));
+            var isInstaller = node.Kind == NodeKind.Installer;
 
-            EditorGUI.DrawRect(rect, node == _hover ? GraphStyles.NodeBgHover : GraphStyles.NodeBg);
+            // ── background, once ──
+            EditorGUI.DrawRect(rect, node == _hover
+                ? GraphStyles.NodeBgHover
+                : isInstaller ? GraphStyles.InstallerBg : GraphStyles.NodeBg);
+
             GraphStyles.Outline(rect, GraphStyles.NodeOutline);
 
-            // left accent bar — the Lifecycle Graph signature
-            EditorGUI.DrawRect(new Rect(rect.x, rect.y, ACCENT_WIDTH * _zoom, rect.height), palette.Accent);
+            var accent = isInstaller ? GraphStyles.InstallerAccent : palette.Accent;
+            EditorGUI.DrawRect(new Rect(rect.x, rect.y, ACCENT_WIDTH * _zoom, rect.height), accent);
 
             if (node == _selected)
                 GraphStyles.Outline(rect, GraphStyles.SelectedRing, 2f);
 
             if (Event.current.type != EventType.Repaint || _zoom < 0.45f) return;
 
+            // ── text ──
             var padX = 11f * _zoom;
             var inner = new Rect(rect.x + ACCENT_WIDTH * _zoom + padX, rect.y + 9f * _zoom,
                                  rect.width - ACCENT_WIDTH * _zoom - padX * 2f, rect.height - 18f * _zoom);
@@ -593,28 +584,42 @@ namespace AceLand.Injection.Editor.Graph
             subStyle.fontSize = Mathf.RoundToInt(10f * scale);
 
             var lineH = inner.height * 0.5f;
-
-            // live dot for instantiated singletons
             var titleRect = new Rect(inner.x, inner.y, inner.width, lineH);
-            if (node.IsInstantiated)
+
+            if (node.IsInstantiated && !isInstaller)
             {
                 var dot = new Rect(inner.xMax - 8f * _zoom, inner.y + lineH * 0.5f - 3f * _zoom,
                                    6f * _zoom, 6f * _zoom);
-                GraphStyles.Dot(dot, GraphStyles.LiveDot);
+                var partial = node.MergeCount > 1 && node.InstantiatedCount < node.MergeCount;
+                GraphStyles.Dot(dot, partial
+                    ? Color.Lerp(GraphStyles.LiveDot, GraphStyles.NodeBg, 0.45f)
+                    : GraphStyles.LiveDot);
                 titleRect.width -= 14f * _zoom;
             }
 
-            GUI.Label(titleRect, GraphStyles.Fit(node.Title, titleStyle, titleRect.width), titleStyle);
+            var prefix = node.Kind switch
+            {
+                NodeKind.Installer  => "⚙ ",
+                NodeKind.Consumer   => "▸ ",
+                NodeKind.Unresolved => "✖ ",
+                _                   => "● "
+            };
 
-            // subtitle: hierarchy paths keep their tail
-            var subRect = new Rect(inner.x, inner.y + lineH, inner.width, lineH);
-            var fromLeft = node.Kind == NodeKind.Consumer;
+            var titleText = node.MergeCount > 1 ? $"{node.Title}  ×{node.MergeCount}" : node.Title;
+            GUI.Label(titleRect, GraphStyles.Fit(prefix + titleText, titleStyle, titleRect.width), titleStyle);
+
+            // ── subtitle: contracts appended ONCE ──
             var sub = node.Subtitle;
-
-            if (node.Kind == NodeKind.Registration && node.Contracts.Count > 0)
+            if (isInstaller)
+                sub = node.ProvidedCount == 0
+                    ? "installer · no registrations"
+                    : $"installer · {node.ProvidedCount} registration(s)";
+            else if (node.Kind == NodeKind.Registration && node.Contracts.Count > 0)
                 sub += "  ·  as " + string.Join(", ", node.Contracts);
 
-            GUI.Label(subRect, GraphStyles.Fit(sub, subStyle, subRect.width, fromLeft), subStyle);
+            var subRect = new Rect(inner.x, inner.y + lineH, inner.width, lineH);
+            GUI.Label(subRect, GraphStyles.Fit(sub, subStyle, subRect.width,
+                fromLeft: node.Kind == NodeKind.Consumer), subStyle);
         }
 
         private void DrawEdges(Dictionary<string, GraphNode> visible)
@@ -633,7 +638,7 @@ namespace AceLand.Injection.Editor.Graph
         {
             foreach (var edge in _graph.Edges)
             {
-                if (edge.Kind == EdgeKind.Provides) continue;
+                if (edge.Kind is EdgeKind.Provides or EdgeKind.Installs) continue;
 
                 var isActive = focus.Count > 0 &&
                                (focus.Contains(edge.FromId) || focus.Contains(edge.ToId));
@@ -723,31 +728,31 @@ namespace AceLand.Injection.Editor.Graph
 
             var panelTitle = GraphStyles.PanelTitle;
             panelTitle.normal.textColor = group.IsError ? GraphStyles.ErrorHue
-                                   : group.IsWarning ? new Color(0.95f, 0.78f, 0.42f)
-                                   : palette.Header;
+                                        : group.IsWarning ? new Color(0.95f, 0.78f, 0.42f)
+                                        : palette.Header;
             GUILayout.Label(group.Title, panelTitle);
             GUILayout.Label(group.ComponentTypeName ?? group.Subtitle, GraphStyles.PanelSub);
 
             GUILayout.Space(10); Separator(); GUILayout.Space(8);
 
+            var installers = group.Nodes.Where(n => n.Kind == NodeKind.Installer).ToList();
+            var registrations = group.Nodes.Where(n => n.Kind == NodeKind.Registration).ToList();
+
             Row("Kind", group.IsScope ? "Scope" : "Group");
 
             if (group.IsScope)
             {
-                Row("Depth", group.Depth == int.MaxValue ? "—" : group.Depth.ToString());
-                var parent = _graph.ParentGroupOf(group);
-                Row("Parent", parent?.Title ?? "—");
+                Row("Depth", group.Depth >= int.MaxValue - 1 ? "—" : group.Depth.ToString());
+                Row("Parent", _graph.ParentGroupOf(group)?.Title ?? "—");
             }
 
-            Row("Registrations", group.Nodes.Count.ToString());
-
-            if (!string.IsNullOrEmpty(group.ObjectPath)) Row("Path", group.ObjectPath);
-            if (!string.IsNullOrEmpty(group.ScenePath))
-                Row("Scene", System.IO.Path.GetFileNameWithoutExtension(group.ScenePath));
+            Row("Installers", installers.Count.ToString());
+            Row("Registrations", registrations.Sum(n => Mathf.Max(1, n.MergeCount)).ToString());
 
             if (group.Target is LifetimeScope scope)
             {
                 Row("Inject Target", scope.InjectionTargetMode.ToString());
+                Row("Injects", group.InjectedCount.ToString());
                 Row("Persistent", scope.IsPersistent ? "yes" : "no");
             }
 
@@ -755,28 +760,44 @@ namespace AceLand.Injection.Editor.Graph
             {
                 GUILayout.Space(8);
                 foreach (var note in group.Notes)
-                    EditorGUILayout.HelpBox(note, group.IsError ? MessageType.Error : MessageType.Warning);
+                    EditorGUILayout.HelpBox(note.Text, note.Kind switch
+                    {
+                        NoteKind.Error   => MessageType.Error,
+                        NoteKind.Warning => MessageType.Warning,
+                        _                => MessageType.Info
+                    });
             }
 
-            if (group.Nodes.Count > 0)
+            if (installers.Count > 0)
             {
                 GUILayout.Space(10); Separator(); GUILayout.Space(8);
-                GUILayout.Label($"Provides ({group.Nodes.Count})", GraphStyles.Section);
-                foreach (var node in OrderedNodes(group).Take(14)) Link(node);
-                if (group.Nodes.Count > 14)
-                    GUILayout.Label($"  … +{group.Nodes.Count - 14}", GraphStyles.PanelSub);
+                GUILayout.Label($"Installers ({installers.Count})", GraphStyles.Section);
+                foreach (var i in installers) Link(i);
+            }
+
+            if (registrations.Count > 0)
+            {
+                GUILayout.Space(10); Separator(); GUILayout.Space(8);
+                GUILayout.Label($"Provides ({registrations.Count})", GraphStyles.Section);
+                foreach (var r in registrations.Take(14)) Link(r);
+                if (registrations.Count > 14)
+                    GUILayout.Label($"  … +{registrations.Count - 14}", GraphStyles.PanelSub);
             }
 
             GUILayout.Space(14);
 
             var target = SelectTarget.From(group);
-            using (new EditorGUI.DisabledScope(!target.HasSceneObject))
+
+            using (new EditorGUILayout.HorizontalScope())
+            using (new EditorGUI.DisabledScope(!target.HasType))
             {
+                if (GUILayout.Button("Ping", GUILayout.Height(22))) PingScript(target);
+                if (GUILayout.Button("Open", GUILayout.Height(22))) OpenScript(target);
+            }
+
+            using (new EditorGUI.DisabledScope(!target.HasSceneObject))
                 if (GUILayout.Button("Select in Hierarchy", GUILayout.Height(22)))
                     TrySelectInHierarchy(target);
-                if (GUILayout.Button("Ping Script", GUILayout.Height(22)))
-                    PingScript(target);
-            }
         }
 
         private void DrawNodeInspector(GraphNode node)
@@ -787,39 +808,47 @@ namespace AceLand.Injection.Editor.Graph
             var panelTitle = GraphStyles.PanelTitle;
             panelTitle.normal.textColor = node.HasError ? GraphStyles.ErrorHue : palette.Header;
             GUILayout.Label(node.Title, panelTitle);
-            
-            var subtitle = !string.IsNullOrEmpty(node.Origin)
-                ? node.Origin
-                : node.Namespace;
 
-            if (!string.IsNullOrEmpty(subtitle))
+            // origin OR namespace, then namespace only if origin took the first line
+            if (!string.IsNullOrEmpty(node.Origin))
             {
                 var style = GraphStyles.PanelSub;
                 style.normal.textColor = GraphOrigin.IsPackage(node.Origin)
-                    ? new Color(0.58f, 0.70f, 0.88f)              // package → blue tint
+                    ? new Color(0.58f, 0.70f, 0.88f)
                     : new Color(0.55f, 0.57f, 0.60f);
-                GUILayout.Label(subtitle, style);
-                style.normal.textColor = new Color(0.55f, 0.57f, 0.60f);   // shared style — restore
+                GUILayout.Label(node.Origin, style);
+                style.normal.textColor = new Color(0.55f, 0.57f, 0.60f);
+
+                if (!string.IsNullOrEmpty(node.Namespace))
+                    GUILayout.Label(node.Namespace, GraphStyles.PanelSub);
+            }
+            else if (!string.IsNullOrEmpty(node.Namespace))
+            {
+                GUILayout.Label(node.Namespace, GraphStyles.PanelSub);
             }
 
-            if (!string.IsNullOrEmpty(node.Origin) && !string.IsNullOrEmpty(node.Namespace))
-                GUILayout.Label(node.Namespace, GraphStyles.PanelSub);
-
-            if (!string.IsNullOrEmpty(node.Namespace))
-                GUILayout.Label(node.Namespace, GraphStyles.PanelSub);
-
             GUILayout.Space(10); Separator(); GUILayout.Space(8);
-            
+
             Row("Scope", group?.Title ?? "—");
             Row("Kind", node.Kind.ToString());
-            if (!string.IsNullOrEmpty(node.Origin)) Row("Origin", node.Origin);
 
             switch (node.Kind)
             {
                 case NodeKind.Registration:
                     Row("Lifetime", node.Subtitle);
                     Row("Contracts", node.Contracts.Count > 0 ? string.Join(", ", node.Contracts) : "self");
-                    Row("State", node.IsInstantiated ? "Instantiated" : "Declared");
+
+                    if (node.InstallerNodeIds.Count == 1)
+                        Row("Installer", _graph.Find(node.PrimaryInstallerId)?.Title ?? "—");
+                    else if (node.InstallerNodeIds.Count > 1)
+                        Row("Installers", node.InstallerNodeIds.Count.ToString());
+
+                    if (node.MergeCount > 1)
+                    {
+                        Row("Registrations", node.MergeCount.ToString());
+                        Row("State", $"{node.InstantiatedCount} of {node.MergeCount} instantiated");
+                    }
+                    else Row("State", node.IsInstantiated ? "Instantiated" : "Declared");
                     break;
 
                 case NodeKind.Consumer:
@@ -831,13 +860,29 @@ namespace AceLand.Injection.Editor.Graph
                 case NodeKind.Unresolved:
                     Row("Status", "Not registered");
                     break;
+
+                case NodeKind.Installer:
+                    Row("Registrations", node.ProvidedCount.ToString());
+                    if (node.Target != null)
+                        Row("Asset", node.Target is Component ? "MonoInstaller" : "ScriptableObject");
+                    break;
             }
 
             if (node.Details.Count > 0)
             {
                 GUILayout.Space(6);
-                foreach (var detail in node.Details.Take(8))
-                    Row("", detail);
+                foreach (var detail in node.Details.Take(8)) Row("", detail);
+            }
+
+            // ── notices, after the facts ──
+            if (node.MergeCount > 1 && !node.Subtitle.Contains("#"))
+            {
+                GUILayout.Space(8);
+                EditorGUILayout.HelpBox(
+                    $"{node.MergeCount} unkeyed registrations of the same contract. " +
+                    "Direct injection resolves the LAST one; only IEnumerable<T> sees them all.\n" +
+                    "Add .WithId(...) to select individually, or inject IEnumerable<T> into a catalog service.",
+                    MessageType.Info);
             }
 
             if (node.Kind == NodeKind.Unresolved)
@@ -846,6 +891,20 @@ namespace AceLand.Injection.Editor.Graph
                 EditorGUILayout.HelpBox(
                     $"Nothing registers {node.Title}.\nAdd it in an installer, or mark the injection " +
                     "site [Inject(Optional = true)].", MessageType.Error);
+            }
+
+            if (node.Kind == NodeKind.Installer)
+            {
+                var provided = _graph.ProvidedBy(node.Id).ToArray();
+
+                GUILayout.Space(10); Separator(); GUILayout.Space(8);
+                GUILayout.Label($"Provides ({provided.Length})", GraphStyles.Section);
+
+                if (provided.Length == 0)
+                    EditorGUILayout.HelpBox("This installer registered nothing. Dead code, or an early return.",
+                        MessageType.Warning);
+                else
+                    foreach (var p in provided.Take(14)) Link(p);
             }
 
             var dependencies = _graph!.DependenciesOf(node.Id).ToArray();
@@ -911,6 +970,7 @@ namespace AceLand.Injection.Editor.Graph
         {
             var label = node.Kind switch
             {
+                NodeKind.Installer  => "   ⚙ " + node.Title,
                 NodeKind.Unresolved => "   ✖ " + node.Title,
                 NodeKind.Consumer   => "   ▸ " + node.Title,
                 _                   => "   ● " + node.Title
@@ -1057,15 +1117,29 @@ namespace AceLand.Injection.Editor.Graph
             var menu = new GenericMenu();
             var target = SelectTarget.From(group);
 
-            if (target.HasType)
-            {
-                menu.AddItem(new GUIContent("Ping Script"), false, () => PingScript(target));
-                menu.AddItem(new GUIContent("Open Script"), false, () => OpenScript(target));
-            }
-            else
+            var scripts = GraphOrigin.FindScripts(target.ResolvedType, target.TypeFullName, target.Target);
+
+            if (scripts.Length == 0)
             {
                 menu.AddDisabledItem(new GUIContent("Ping Script"));
                 menu.AddDisabledItem(new GUIContent("Open Script"));
+            }
+            else if (scripts.Length == 1)
+            {
+                var only = scripts[0];
+                menu.AddItem(new GUIContent("Ping Script"), false, () => Ping(only.Script));
+                menu.AddItem(new GUIContent("Open Script"), false, () => AssetDatabase.OpenAsset(only.Script));
+            }
+            else
+            {
+                foreach (var s in scripts)
+                {
+                    var captured = s;
+                    var suffix = captured.FromPackage ? "  (package)" : "";
+                    menu.AddItem(new GUIContent($"Ping/{captured.Label}{suffix}"), false, () => Ping(captured.Script));
+                    menu.AddItem(new GUIContent($"Open/{captured.Label}{suffix}"), false,
+                        () => AssetDatabase.OpenAsset(captured.Script));
+                }
             }
 
             if (target.HasSceneObject)
@@ -1079,9 +1153,11 @@ namespace AceLand.Injection.Editor.Graph
             if (!string.IsNullOrEmpty(group.ObjectPath))
                 menu.AddItem(new GUIContent("Copy Hierarchy Path"), false, () => Copy(group.ObjectPath));
 
-            if (group.Nodes.Count > 0)
+            if (group.Nodes.Any(n => n.Kind == NodeKind.Registration))
                 menu.AddItem(new GUIContent("Copy All Registrations"), false, () =>
-                    Copy(string.Join("\n", OrderedNodes(group).Select(RegisterSnippet))));
+                    Copy(string.Join("\n", OrderedNodes(group)
+                        .Where(n => n.Kind == NodeKind.Registration)
+                        .Select(RegisterSnippet))));
 
             if (!string.IsNullOrEmpty(group.Origin))
             {
@@ -1096,18 +1172,31 @@ namespace AceLand.Injection.Editor.Graph
         {
             var menu = new GenericMenu();
             var target = SelectTarget.From(node);
-            var hasScript = target.HasType;
 
             // ── scripts ──
-            if (hasScript)
-            {
-                menu.AddItem(new GUIContent("Ping Script"), false, () => PingScript(target));
-                menu.AddItem(new GUIContent("Open Script"), false, () => OpenScript(target));
-            }
-            else
+            var scripts = GraphOrigin.FindScripts(target.ResolvedType, target.TypeFullName, target.Target);
+
+            if (scripts.Length == 0)
             {
                 menu.AddDisabledItem(new GUIContent("Ping Script"));
                 menu.AddDisabledItem(new GUIContent("Open Script"));
+            }
+            else if (scripts.Length == 1)
+            {
+                var only = scripts[0];
+                menu.AddItem(new GUIContent("Ping Script"), false, () => Ping(only.Script));
+                menu.AddItem(new GUIContent("Open Script"), false, () => AssetDatabase.OpenAsset(only.Script));
+            }
+            else
+            {
+                foreach (var s in scripts)
+                {
+                    var captured = s;
+                    var suffix = captured.FromPackage ? "  (package)" : "";
+                    menu.AddItem(new GUIContent($"Ping/{captured.Label}{suffix}"), false, () => Ping(captured.Script));
+                    menu.AddItem(new GUIContent($"Open/{captured.Label}{suffix}"), false,
+                        () => AssetDatabase.OpenAsset(captured.Script));
+                }
             }
 
             if (target.HasSceneObject)
@@ -1170,12 +1259,19 @@ namespace AceLand.Injection.Editor.Graph
         private MonoScript ResolveScript(SelectTarget target)
             => GraphOrigin.FindScript(target.ResolvedType, target.TypeFullName, target.Target);
 
+        private static void Ping(MonoScript script)
+        {
+            Selection.activeObject = script;
+            EditorGUIUtility.PingObject(script);
+        }
+
         private void PingScript(SelectTarget target)
         {
             var script = ResolveScript(target);
             if (script == null)
             {
-                ShowNotification(new GUIContent($"{GraphOrigin.ShortName(target.TypeFullName ?? target.Title)}.cs not found"));
+                ShowNotification(new GUIContent(
+                    $"{GraphOrigin.ShortName(target.TypeFullName ?? target.Title)}.cs not found"));
                 return;
             }
 
@@ -1188,7 +1284,8 @@ namespace AceLand.Injection.Editor.Graph
             var script = ResolveScript(target);
             if (script == null)
             {
-                ShowNotification(new GUIContent($"{GraphOrigin.ShortName(target.TypeFullName ?? target.Title)}.cs not found"));
+                ShowNotification(new GUIContent(
+                    $"{GraphOrigin.ShortName(target.TypeFullName ?? target.Title)}.cs not found"));
                 return;
             }
 
@@ -1231,9 +1328,8 @@ namespace AceLand.Injection.Editor.Graph
                 ? node.Contracts[0]
                 : node.Title;
 
-            var field = "_" + char.ToLowerInvariant(contract[0]) +
-                        contract[1..].TrimStart('\0');
-
+            var field = "_" + char.ToLowerInvariant(contract[0]) + contract.Substring(1);
+            
             if (contract.Length > 1 && contract[0] == 'I' && char.IsUpper(contract[1]))
                 field = "_" + char.ToLowerInvariant(contract[1]) + contract.Substring(2);
 
@@ -1348,12 +1444,20 @@ namespace AceLand.Injection.Editor.Graph
                 g.TypeFullName ?? g.ComponentTypeName, g.Origin, g.ResolvedType, g.Target);
         }
 
-        private HashSet<string> BuildFocusSet()
+        HashSet<string> BuildFocusSet()
         {
             var focus = new HashSet<string>();
 
             var node = _selected ?? _hover;
-            if (node != null) focus.Add(node.Id);
+            if (node != null)
+            {
+                focus.Add(node.Id);
+
+                if (node.Kind == NodeKind.Installer)
+                    foreach (var provided in _graph.ProvidedBy(node.Id)) focus.Add(provided.Id);
+                else
+                    foreach (var installerId in node.InstallerNodeIds) focus.Add(installerId);
+            }
 
             var group = _selectedGroup ?? _hoverGroup;
             if (group != null)

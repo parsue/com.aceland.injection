@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -28,6 +29,21 @@ namespace AceLand.Injection
         private EntryPointRunner _runner;
         private Scene _originScene;
         private static LifetimeScope _persistent;
+        static readonly Dictionary<Type, bool> ConfigureOverrides = new();
+        
+        /// <summary>True when a subclass actually implements Configure.</summary>
+        bool OverridesConfigure()
+        {
+            var type = GetType();
+            if (ConfigureOverrides.TryGetValue(type, out var cached)) return cached;
+
+            var method = type.GetMethod(nameof(Configure),
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+            var overridden = method != null && method.DeclaringType != typeof(LifetimeScope);
+            ConfigureOverrides[type] = overridden;
+            return overridden;
+        }
 
         private Scene TargetScene => _originScene.IsValid() ? _originScene : gameObject.scene;
         
@@ -95,7 +111,7 @@ namespace AceLand.Injection
         public IObjectResolver BuildContainerOnly(IObjectResolver parentOverride = null)
             => CreateBuilder(parentOverride ?? ResolveParentResolver(), true).Build();
 
-        private ContainerBuilder CreateBuilder(IObjectResolver parent, bool validationOnly)
+        ContainerBuilder CreateBuilder(IObjectResolver parent, bool validationOnly)
         {
             var builder = new ContainerBuilder(parent)
             {
@@ -103,10 +119,32 @@ namespace AceLand.Injection
                 ContextTransform = transform,
                 SkipEntryPointActivation = validationOnly
             };
+
             builder.RegisterInstance(this);
-            foreach (var mi in installers) (mi as IInstaller)?.Install(builder);
-            foreach (var si in assetInstallers) (si as IInstaller)?.Install(builder);
-            Configure(builder);
+
+            foreach (var mi in installers)
+            {
+                if (mi is not IInstaller installer) continue;
+                using (builder.Source(mi)) installer.Install(builder);
+            }
+
+            foreach (var si in assetInstallers)
+            {
+                if (si is not IInstaller installer) continue;
+                using (builder.Source(si)) installer.Install(builder);
+            }
+
+            // only attribute Configure when a subclass implements it — the base is an empty hook
+            if (OverridesConfigure())
+            {
+                using (builder.Source(this, $"{GetType().Name}.Configure"))
+                    Configure(builder);
+            }
+            else
+            {
+                Configure(builder);
+            }
+
             return builder;
         }
 

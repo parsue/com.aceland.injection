@@ -22,11 +22,48 @@ namespace AceLand.Injection
 
         public ContainerBuilder() { }
         public ContainerBuilder(IObjectResolver parent) => ParentContainer = parent as Container;
+        
+        internal readonly List<InstallerInfo> Sources = new();
+        private InstallerInfo? _currentSource;
+
+        /// <summary>
+        /// Attributes every registration made inside the scope to one installer.
+        /// <code>using (builder.Source(installer)) installer.Install(builder);</code>
+        /// </summary>
+        public IDisposable Source(object installer, string label = null)
+        {
+            var type = installer?.GetType();
+            var asset = installer as UnityEngine.Object;
+
+            // asset name disambiguates four PlayerProfile assets
+            var name = label
+                       ?? (asset != null && !string.IsNullOrEmpty(asset.name)
+                           ? $"{type?.Name} ({asset.name})"
+                           : type?.Name)
+                       ?? "unknown";
+
+            var info = new InstallerInfo(name, type, asset, Sources.Count);
+            Sources.Add(info);
+            _currentSource = info;
+            return new SourceScope(this);
+        }
+
+        private sealed class SourceScope : IDisposable
+        {
+            readonly ContainerBuilder _builder;
+            public SourceScope(ContainerBuilder builder) => _builder = builder;
+            public void Dispose() => _builder._currentSource = null;
+        }
 
         public IRegistrationBuilder Register(Type implementationType, Lifetime lifetime)
         {
             if (implementationType == null) throw new ArgumentNullException(nameof(implementationType));
-            var reg = new Registration { ImplementationType = implementationType, Lifetime = lifetime };
+            var reg = new Registration
+            {
+                ImplementationType = implementationType,
+                Lifetime = lifetime,
+                Source = _currentSource
+            };
             Registrations.Add(reg);
             return new RegistrationBuilder(reg);
         }
@@ -39,7 +76,8 @@ namespace AceLand.Injection
                 ImplementationType = instance.GetType(),
                 Lifetime = Lifetime.Singleton,
                 Instance = instance,
-                OwnsInstance = ownsInstance
+                OwnsInstance = ownsInstance,
+                Source = _currentSource
             };
             reg.ContractTypes.Add(contractType ?? instance.GetType());
             Registrations.Add(reg);
@@ -53,7 +91,8 @@ namespace AceLand.Injection
             {
                 ImplementationType = contractType,
                 Lifetime = lifetime,
-                Factory = factory ?? throw new ArgumentNullException(nameof(factory))
+                Factory = factory ?? throw new ArgumentNullException(nameof(factory)),
+                Source = _currentSource
             };
             reg.ContractTypes.Add(contractType);
             Registrations.Add(reg);

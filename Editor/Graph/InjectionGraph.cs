@@ -5,17 +5,30 @@ using UnityEngine;
 
 namespace AceLand.Injection.Editor.Graph
 {
-    internal enum NodeKind { Scope, Registration, Consumer, Unresolved }
+    internal enum NodeKind { Scope, Installer, Registration, Consumer, Unresolved }
 
     internal enum EdgeKind
     {
         ScopeParent,     // scope → parent scope
         Provides,        // scope → registration
+        Installs,
         Resolves,        // consumer → registration
         Deferred,        // via Func<T> / Lazy<T>
         Collection,      // via IEnumerable<T> — fan-out
         Component,       // [Self]/[Parent]/[Child] — hierarchy, not container
         Missing          // consumer → unresolved
+    }
+    
+    public enum NoteKind { Info, Warning, Error }
+
+    public sealed class GraphNote
+    {
+        public string Text;
+        public NoteKind Kind;
+
+        public static GraphNote Info(string text)    => new() { Text = text, Kind = NoteKind.Info };
+        public static GraphNote Warning(string text) => new() { Text = text, Kind = NoteKind.Warning };
+        public static GraphNote Error(string text)   => new() { Text = text, Kind = NoteKind.Error };
     }
     
     internal sealed class GraphGroup
@@ -28,7 +41,6 @@ namespace AceLand.Injection.Editor.Graph
         public int Column;                   // NEW — assigned by layout
         public bool IsError;
         public bool IsWarning;               // NEW
-        public readonly List<string> Notes = new();   // NEW
         public Rect Rect;
         public Rect HeaderRect;              // NEW — world space, for hit testing
         public readonly List<GraphNode> Nodes = new();
@@ -41,6 +53,10 @@ namespace AceLand.Injection.Editor.Graph
         public string Origin;
 
         public bool IsScope => Id != "group:unresolved" && Id != "group:consumers";
+        
+// GraphGroup — change Notes, add InjectedCount
+        public readonly List<GraphNote> Notes = new();
+        public int InjectedCount;
     }
 
     internal sealed class GraphNode
@@ -65,6 +81,12 @@ namespace AceLand.Injection.Editor.Graph
         public Type ResolvedType;          // for origin + exact script lookup
         public string TypeFullName;
         public string Origin;              // "com.aceland.library 2.2.3"
+        public int MergeCount = 1;          // registrations collapsed into this node
+        public int InstantiatedCount;       // how many of them are live
+        public string InjectorScopeId;      // scope that injects this consumer// GraphNode — replace InstallerNodeId
+        public readonly List<string> InstallerNodeIds = new List<string>();
+        public string PrimaryInstallerId => InstallerNodeIds.Count > 0 ? InstallerNodeIds[0] : null;
+        public int ProvidedCount;               // installer: how many registrations
     }
 
     internal sealed class GraphEdge
@@ -85,12 +107,18 @@ namespace AceLand.Injection.Editor.Graph
         private readonly Dictionary<string, GraphNode> _byId = new();
         private readonly Dictionary<string, GraphGroup> _groupsById = new();
 
-        private readonly Dictionary<IObjectResolver, string> _scopeIds = new Dictionary<IObjectResolver, string>();
-        private readonly Dictionary<int, string> _regIdBySerial = new Dictionary<int, string>();
+        private readonly Dictionary<IObjectResolver, string> _scopeIds = new();
+        private readonly Dictionary<int, string> _regIdBySerial = new();
         
         public int WarningCount => Groups.Count(g => g.IsWarning);
         public int IssueCount   => ErrorCount + WarningCount;
         
+        public static string InstallerId(string scopeId, string installerKey) => $"inst:{scopeId}|{installerKey}";
+
+        public IEnumerable<GraphNode> ProvidedBy(string installerId)
+            => Nodes.Where(n => n.Kind == NodeKind.Registration && n.InstallerNodeIds.Contains(installerId));
+
+        private readonly HashSet<string> _edgeKeys = new();
         /// <summary>
         /// Stable scope id. GameObject InstanceID survives rescans; container hash codes do not.
         /// </summary>
@@ -138,9 +166,31 @@ namespace AceLand.Injection.Editor.Graph
             return key;
         }
 
-        /// <summary>Look up an id assigned earlier in this scan.</summary>
+        /// <summary>
+        /// Content-derived id. Identical registrations in the same scope collapse into one node
+        /// — four PlayerData singletons become "PlayerData ×4".
+        /// </summary>
+        public string RegistrationKey(string scopeId, RegistrationInfo reg)
+        {
+            var impl = reg.ImplementationType?.FullName ?? "?";
+            var contract = reg.ContractTypes != null && reg.ContractTypes.Length > 0
+                ? reg.ContractTypes[0].FullName
+                : impl;
+
+            return $"reg:{scopeId}|{contract}|{impl}|{reg.Lifetime}" + (reg.Id != null ? "#" + reg.Id : "");
+        }
+
+        public void MapSerial(int serial, string nodeId) => _regIdBySerial[serial] = nodeId;
+
         public string RegistrationIdBySerial(int serial)
             => _regIdBySerial.TryGetValue(serial, out var id) ? id : null;
+
+        public void Connect(string from, string to, EdgeKind kind, string label = null)
+        {
+            if (from == null || to == null) return;
+            if (!_edgeKeys.Add($"{from}→{to}|{kind}")) return;      // merged nodes would duplicate edges
+            Edges.Add(new GraphEdge { FromId = from, ToId = to, Kind = kind, Label = label });
+        }
 
         // keep these — already content-based
         public static string ConsumerId(Type t, string path) => "use:" + t.FullName + "@" + path;
@@ -180,12 +230,6 @@ namespace AceLand.Injection.Editor.Graph
             => Edges.Where(e => e.FromId == nodeId && e.Kind != EdgeKind.ScopeParent &&
                                 e.Kind != EdgeKind.Provides)
                 .Select(e => Find(e.ToId)).Where(n => n != null);
-
-        public void Connect(string from, string to, EdgeKind kind, string label = null)
-        {
-            if (from == null || to == null) return;
-            Edges.Add(new GraphEdge { FromId = from, ToId = to, Kind = kind, Label = label });
-        }
 
         public int ErrorCount => Nodes.Count(n => n.HasError);
 
