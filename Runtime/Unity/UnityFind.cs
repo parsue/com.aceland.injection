@@ -7,7 +7,7 @@ namespace AceLand.Injection
     /// <summary>Version-safe FindObject* wrappers (the plural overloads exist on every supported version).</summary>
     public static class UnityFind
     {
-        static FindObjectsInactive Inactive(bool includeInactive)
+        private static FindObjectsInactive Inactive(bool includeInactive)
             => includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude;
         
         public static T First<T>(bool includeInactive) where T : Component

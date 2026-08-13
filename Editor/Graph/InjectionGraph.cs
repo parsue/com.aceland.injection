@@ -84,9 +84,68 @@ namespace AceLand.Injection.Editor.Graph
 
         private readonly Dictionary<string, GraphNode> _byId = new();
         private readonly Dictionary<string, GraphGroup> _groupsById = new();
+
+        private readonly Dictionary<IObjectResolver, string> _scopeIds = new Dictionary<IObjectResolver, string>();
+        private readonly Dictionary<int, string> _regIdBySerial = new Dictionary<int, string>();
         
         public int WarningCount => Groups.Count(g => g.IsWarning);
         public int IssueCount   => ErrorCount + WarningCount;
+        
+        /// <summary>
+        /// Stable scope id. GameObject InstanceID survives rescans; container hash codes do not.
+        /// </summary>
+        public string ScopeIdFor(IObjectResolver resolver, LifetimeScope source)
+        {
+            if (resolver == null) return null;
+            if (_scopeIds.TryGetValue(resolver, out var existing)) return existing;
+
+            var id = source != null
+#if UNITY_6000_4_OR_NEWER
+                ? "scope:obj:" + source.GetEntityId()
+#else
+                ? "scope:obj:" + source.GetInstanceID()
+#endif
+                : "scope:global";
+            _scopeIds[resolver] = id;
+            return id;
+        }
+
+        /// <summary>Id of an already-registered scope, or null.</summary>
+        public string ExistingScopeId(IObjectResolver resolver)
+            => resolver != null && _scopeIds.TryGetValue(resolver, out var id) ? id : null;
+
+        /// <summary>
+        /// Content-derived registration id. <paramref name="used"/> is a per-scope counter
+        /// that disambiguates duplicate contract+impl pairs.
+        /// </summary>
+        public string RegistrationId(string scopeId, RegistrationInfo reg, Dictionary<string, int> used)
+        {
+            var impl = reg.ImplementationType?.FullName ?? "?";
+            var contract = reg.ContractTypes != null && reg.ContractTypes.Length > 0
+                ? reg.ContractTypes[0].FullName
+                : impl;
+
+            var key = $"reg:{scopeId}|{contract}|{impl}" + (reg.Id != null ? "#" + reg.Id : "");
+
+            if (used.TryGetValue(key, out var seen))
+            {
+                used[key] = seen + 1;
+                key += "~" + (seen + 1);
+            }
+            else used[key] = 0;
+
+            _regIdBySerial[reg.Serial] = key;      // serials are unique *within* one scan
+            return key;
+        }
+
+        /// <summary>Look up an id assigned earlier in this scan.</summary>
+        public string RegistrationIdBySerial(int serial)
+            => _regIdBySerial.TryGetValue(serial, out var id) ? id : null;
+
+        // keep these — already content-based
+        public static string ConsumerId(Type t, string path) => "use:" + t.FullName + "@" + path;
+        public static string MissingId(Type contract, object id)
+            => "miss:" + contract.FullName + (id != null ? "#" + id : "");
         
         public GraphGroup ParentGroupOf(GraphGroup group)
         {
@@ -137,12 +196,5 @@ namespace AceLand.Injection.Editor.Graph
                                 (e.Kind == EdgeKind.Resolves || e.Kind == EdgeKind.Deferred))
                     .Select(e => Find(e.FromId))
                     .Where(n => n != null);
-
-        // stable id helpers
-        public static string ScopeId(IObjectResolver r) => "scope:" + r.GetHashCode().ToString("x");
-        public static string RegId(int serial) => "reg:" + serial;
-        public static string ConsumerId(Type t, string path) => "use:" + t.FullName + "@" + path;
-        public static string MissingId(Type contract, object id)
-            => "miss:" + contract.FullName + (id != null ? "#" + id : "");
     }
 }

@@ -80,7 +80,7 @@ namespace AceLand.Injection.Editor.Graph
             sb.AppendLine("  node [shape=box style=rounded fontname=\"Helvetica\" fontsize=10];");
             sb.AppendLine("  graph [fontname=\"Helvetica\" fontsize=11];");
 
-            int cluster = 0;
+            var cluster = 0;
             foreach (var scope in graph.OfKind(NodeKind.Scope).OrderBy(s => s.Depth))
             {
                 sb.AppendLine($"  subgraph cluster_{cluster++} {{");

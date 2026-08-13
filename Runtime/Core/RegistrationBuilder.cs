@@ -6,7 +6,7 @@ namespace AceLand.Injection
 {
     internal sealed class RegistrationBuilder : IRegistrationBuilder
     {
-        readonly Registration _r;
+        private readonly Registration _r;
         internal RegistrationBuilder(Registration r) => _r = r;
 
         public Type ImplementationType => _r.ImplementationType;
@@ -63,6 +63,6 @@ namespace AceLand.Injection
         public IRegistrationBuilder IgnoreAttributes() { _r.IgnoreAttributes = true; return this; }
         public IRegistrationBuilder OnActivated(Action<IObjectResolver, object> cb) { _r.OnActivated += cb; return this; }
 
-        List<ParameterOverride> Params() => _r.Parameters ??= new List<ParameterOverride>();
+        private List<ParameterOverride> Params() => _r.Parameters ??= new List<ParameterOverride>();
     }
 }

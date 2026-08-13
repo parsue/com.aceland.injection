@@ -104,7 +104,7 @@ namespace AceLand.Injection
 
         // ------------------------------------------------------------------ explicit plan overrides
 
-        static void ApplyOverrides(object instance, Container scope, Registration reg, InjectTypeInfo info)
+        private static void ApplyOverrides(object instance, Container scope, Registration reg, InjectTypeInfo info)
         {
             if (reg?.Members != null)
             {
@@ -151,7 +151,7 @@ namespace AceLand.Injection
 
         // ------------------------------------------------------------------ plan helpers
 
-        static bool TryGetPlan(Type type, Registration reg, out IInjectorPlan plan)
+        private static bool TryGetPlan(Type type, Registration reg, out IInjectorPlan plan)
         {
             plan = null;
             if (!UseGeneratedPlans) return false;
@@ -160,7 +160,7 @@ namespace AceLand.Injection
             return InjectorPlanRegistry.TryGet(type, out plan);
         }
 
-        static bool CtorSatisfied(IInjectorPlan plan, Container scope, object[] extraArgs)
+        private static bool CtorSatisfied(IInjectorPlan plan, Container scope, object[] extraArgs)
         {
             foreach (var d in plan.Dependencies)
             {
@@ -174,7 +174,7 @@ namespace AceLand.Injection
 
         // ------------------------------------------------------------------ reflection ctor selection
 
-        static ConstructorInfo SelectConstructor(InjectTypeInfo info, Container scope,
+        private static ConstructorInfo SelectConstructor(InjectTypeInfo info, Container scope,
                                                  Registration reg, object[] extraArgs)
         {
             if (reg?.CachedConstructor != null) return reg.CachedConstructor;
@@ -203,7 +203,7 @@ namespace AceLand.Injection
             return chosen;
         }
 
-        static bool CanSatisfy(ConstructorInfo ctor, Container scope, Registration reg, object[] extraArgs)
+        private static bool CanSatisfy(ConstructorInfo ctor, Container scope, Registration reg, object[] extraArgs)
         {
             foreach (var p in ctor.GetParameters())
             {
@@ -216,7 +216,7 @@ namespace AceLand.Injection
             return true;
         }
 
-        static object ResolveParameter(ParameterInfo p, Container scope, Registration reg,
+        private static object ResolveParameter(ParameterInfo p, Container scope, Registration reg,
                                        object[] extraArgs, Type owner)
         {
             var ov = FindOverride(p, reg);
@@ -235,7 +235,7 @@ namespace AceLand.Injection
                 "Register it, pass WithParameter(...) / CreateInstance(args), or give it a default value.");
         }
 
-        static ParameterOverride FindOverride(ParameterInfo p, Registration reg)
+        private static ParameterOverride FindOverride(ParameterInfo p, Registration reg)
         {
             if (reg?.Parameters == null) return null;
             foreach (var o in reg.Parameters) if (o.Name == p.Name) return o;
@@ -243,7 +243,7 @@ namespace AceLand.Injection
             return null;
         }
 
-        static void Invoke(MethodBase m, object instance, object[] args)
+        private static void Invoke(MethodBase m, object instance, object[] args)
         {
             try { m.Invoke(instance, args); }
             catch (TargetInvocationException e) { throw e.InnerException ?? e; }

@@ -6,12 +6,12 @@ namespace AceLand.Injection
 {
     public class ObjectPool<T> : IObjectPool<T>
     {
-        readonly Stack<T> _stack;
-        readonly Func<T> _create;
-        readonly Action<T> _onRent, _onReturn, _onDestroy;
-        readonly int _maxSize;
-        int _active;
-        bool _disposed;
+        private readonly Stack<T> _stack;
+        private readonly Func<T> _create;
+        private readonly Action<T> _onRent, _onReturn, _onDestroy;
+        private readonly int _maxSize;
+        private int _active;
+        private bool _disposed;
 
         public ObjectPool(Func<T> create, Action<T> onRent = null, Action<T> onReturn = null,
                           Action<T> onDestroy = null, int prewarm = 0, int maxSize = 0)
@@ -73,7 +73,7 @@ namespace AceLand.Injection
             Clear();
         }
 
-        void ThrowIfDisposed()
+        private void ThrowIfDisposed()
         {
             if (_disposed) throw new ObjectDisposedException($"ObjectPool<{typeof(T).Name}>");
         }

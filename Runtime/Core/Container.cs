@@ -399,15 +399,21 @@ namespace AceLand.Injection
 
             lock (_sync)
             {
-                foreach (var pair in _registry)
-                foreach (var reg in pair.Value)
-                {
-                    if (!seen.Add(reg)) continue;
-                    list.Add(Describe(reg));
-                }
+                list.AddRange(
+                    from pair in _registry
+                    from reg in pair.Value
+                    where seen.Add(reg)
+                    select Describe(reg)
+                );
             }
-
-            list.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, StringComparison.Ordinal));
+            
+            list.Sort((a, b) =>
+            {
+                var byName = string.Compare(a.DisplayName, b.DisplayName, StringComparison.Ordinal);
+                return byName != 0
+                    ? byName
+                    : a.Serial.CompareTo(b.Serial); // declaration order — deterministic per build
+            });
             return list;
         }
     }

@@ -133,7 +133,7 @@ namespace AceLand.Injection.Editor.Validation
 
             using (new EditorGUI.IndentLevelScope())
             {
-                for (int i = 0; i < values.Length; i++)
+                for (var i = 0; i < values.Length; i++)
                 {
                     using (new EditorGUILayout.HorizontalScope())
                     {

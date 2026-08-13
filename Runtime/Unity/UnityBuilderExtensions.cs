@@ -43,7 +43,7 @@ namespace AceLand.Injection
             }, lifetime);
         }
 
-        static T FindInScene<T>(Scene? scene) where T : Component
+        private static T FindInScene<T>(Scene? scene) where T : Component
         {
             if (scene.HasValue && scene.Value.IsValid())
             {

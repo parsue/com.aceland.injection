@@ -12,6 +12,9 @@ namespace AceLand.Injection.Editor.Graph
     {
         private const string LIVE_KEY = "AceLand.Injection.Graph.Live";
         private const string AUTO_KEY = "AceLand.Injection.Graph.AutoRefresh";
+        private const string AUTO_SCAN_KEY = "AceLand.Injection.Graph.AutoScan";
+        private const double HIERARCHY_DEBOUNCE = 0.4;
+        private const bool VERTICAL_CENTER = false;
         
         // ── layout metrics ──
         private const float GROUP_WIDTH  = 292f;
@@ -20,7 +23,7 @@ namespace AceLand.Injection.Editor.Graph
         private const float GROUP_GAP    = 46f;
         private const float NODE_HEIGHT  = 72f;
         private const float NODE_GAP     = 24f;
-        private const float ACCENT_WIDTH = 4f;
+        private const float ACCENT_WIDTH = 8f;
         private const float INSPECTOR_WIDTH = 336f;
         private const float MARGIN = 26f;
         private const float GROUP_STACK_GAP  = 26f;
@@ -33,9 +36,14 @@ namespace AceLand.Injection.Editor.Graph
         private bool _showConsumers = true;
         private bool _errorsOnly;
         private bool _live;
-        private bool _autoRefresh;                // poll while live is active
+        private bool _autoRefresh;              // poll while live is active
         private double _nextAutoRefresh;
         private int _pendingScanRetries;
+
+        private bool _autoScan;                 // rescan on hierarchy change (edit mode)
+        private bool _hierarchyDirty;
+        private double _hierarchyDirtyAt;
+        private bool _scanning;                 // reentrancy guard
         
         private GraphNode  _selected;
         private GraphGroup _selectedGroup;
@@ -51,13 +59,18 @@ namespace AceLand.Injection.Editor.Graph
             var window = GetWindow<InjectionGraphWindow>("Injection Graph");
             window.minSize = new Vector2(980, 540);
             window.Show();
+            window.Scan();
         }
+        
+        [UnityEditor.Callbacks.DidReloadScripts]
+        private static void OnScriptsReloaded() => GraphOrigin.ClearCaches();
 
         private void OnEnable()
         {
             wantsMouseMove = true;
-            _live = EditorPrefs.GetBool(LIVE_KEY, false);
-            _autoRefresh = EditorPrefs.GetBool(AUTO_KEY, false);
+            _live = EditorPrefs.GetBool(LIVE_KEY, true);
+            _autoRefresh = EditorPrefs.GetBool(AUTO_KEY, true);
+            _autoScan = EditorPrefs.GetBool(AUTO_SCAN_KEY, true);
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
             EditorApplication.update += OnEditorUpdate;
         }
@@ -66,8 +79,19 @@ namespace AceLand.Injection.Editor.Graph
         {
             EditorPrefs.SetBool(LIVE_KEY, _live);
             EditorPrefs.SetBool(AUTO_KEY, _autoRefresh);
+            EditorPrefs.SetBool(AUTO_SCAN_KEY, _autoScan);
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
             EditorApplication.update -= OnEditorUpdate;
+        }
+
+        private void OnHierarchyChange()
+        {
+            if (!_autoScan) return;
+            if (_scanning) return;                  // our own installers touched the hierarchy
+            if (Application.isPlaying) return;      // live mode already polls; spawns would thrash
+
+            _hierarchyDirty = true;
+            _hierarchyDirtyAt = EditorApplication.timeSinceStartup + HIERARCHY_DEBOUNCE;
         }
 
         private void OnPlayModeChanged(PlayModeStateChange change)
@@ -99,7 +123,6 @@ namespace AceLand.Injection.Editor.Graph
 
         private void OnEditorUpdate()
         {
-            // deferred scan after entering Play mode — containers build during the first frames
             if (_pendingScanRetries > 0)
             {
                 _pendingScanRetries--;
@@ -111,11 +134,19 @@ namespace AceLand.Injection.Editor.Graph
                 return;
             }
 
+            // coalesced hierarchy rescan
+            if (_hierarchyDirty && EditorApplication.timeSinceStartup >= _hierarchyDirtyAt)
+            {
+                _hierarchyDirty = false;
+                Scan(preserveView: true, clearCaches: false);
+                return;
+            }
+
             if (!_autoRefresh || !LiveActive) return;
             if (EditorApplication.timeSinceStartup < _nextAutoRefresh) return;
 
             _nextAutoRefresh = EditorApplication.timeSinceStartup + 1.0;
-            Scan(preserveView: true);
+            Scan(preserveView: true, clearCaches: false);
         }
 
         // ══════════════════════════════════════════════════════ GUI
@@ -127,6 +158,14 @@ namespace AceLand.Injection.Editor.Graph
             var top = EditorStyles.toolbar.fixedHeight;
             var canvas = new Rect(0, top, position.width - INSPECTOR_WIDTH, position.height - top);
             var inspector = new Rect(canvas.xMax, top, INSPECTOR_WIDTH, position.height - top);
+            var autoScan = GUILayout.Toggle(_autoScan,
+                new GUIContent("⤾", "Rescan automatically when the hierarchy changes (edit mode)."),
+                EditorStyles.toolbarButton, GUILayout.Width(26));
+            if (autoScan != _autoScan)
+            {
+                _autoScan = autoScan;
+                EditorPrefs.SetBool(AUTO_SCAN_KEY, _autoScan);
+            }
 
             if (_graph == null)
             {
@@ -256,66 +295,64 @@ namespace AceLand.Injection.Editor.Graph
             get
             {
                 if (LiveActive) return _autoRefresh ? "live ⟳" : "live";
-                if (_live) return "armed";
-                return Application.isPlaying ? "static*" : "static";
+                return _live ? "armed" : "static";
             }
         }
 
         // ══════════════════════════════════════════════════════ scan + layout
 
-        private void Scan(bool preserveView = false)
+        private void Scan(bool preserveView = false, bool clearCaches = true)
         {
-            GraphOrigin.ClearCaches();
-            
-            var previousNodeId = _selected?.Id;
-            var previousGroupId = _selectedGroup?.Id;
-            var previousPan = _pan;
-            var previousZoom = _zoom;
-            var hadGraph = _graph != null;
+            if (_scanning) return;
+            _scanning = true;
+            try
+            {
+                if (clearCaches) GraphOrigin.ClearCaches();
 
-            if (LiveActive)
-            {
-                _graph = InjectionGraphBuilder.FromRuntime();
-            }
-            else if (Application.isPlaying)
-            {
-                // can't reopen scenes during Play — analyse what's loaded
-                _graph = InjectionGraphBuilder.FromLoadedScenes(
-                    SceneManager.GetActiveScene().name);
-            }
-            else
-            {
-                var path = SceneManager.GetActiveScene().path;
-                if (string.IsNullOrEmpty(path))
+                var previousNodeId = _selected?.Id;
+                var previousGroupId = _selectedGroup?.Id;
+                var previousPan = _pan;
+                var previousZoom = _zoom;
+                var hadGraph = _graph != null;
+
+                _graph = LiveActive
+                    ? InjectionGraphBuilder.FromRuntime()
+                    : InjectionGraphBuilder.FromLoadedScenes(DescribeLoadedScenes());
+
+                _hover = null;
+                _hoverGroup = null;
+                Layout();
+
+                if (preserveView && hadGraph)
                 {
-                    ShowNotification(new GUIContent("Save the scene first"));
-                    return;
+                    _pan = previousPan;
+                    _zoom = previousZoom;
+                    _selected = previousNodeId != null ? _graph.Find(previousNodeId) : null;
+                    _selectedGroup = previousGroupId != null ? _graph.FindGroup(previousGroupId) : null;
                 }
-                if (!UnityEditor.SceneManagement.EditorSceneManager
-                        .SaveCurrentModifiedScenesIfUserWantsTo()) return;
+                else
+                {
+                    _selected = null;
+                    _selectedGroup = null;
+                    FrameAll();
+                }
 
-                _graph = InjectionGraphBuilder.FromScene(path);
+                _hierarchyDirty = false;         // this scan already covers it
+                Repaint();
             }
+            finally { _scanning = false; }
+        }
 
-            _hover = null;
-            _hoverGroup = null;
-            Layout();
-
-            if (preserveView && hadGraph)
+        private static string DescribeLoadedScenes()
+        {
+            var names = new List<string>();
+            for (var i = 0; i < SceneManager.sceneCount; i++)
             {
-                _pan = previousPan;
-                _zoom = previousZoom;
-                _selected = previousNodeId != null ? _graph.Find(previousNodeId) : null;
-                _selectedGroup = previousGroupId != null ? _graph.FindGroup(previousGroupId) : null;
+                var scene = SceneManager.GetSceneAt(i);
+                if (!scene.isLoaded) continue;
+                names.Add(string.IsNullOrEmpty(scene.name) ? "Untitled" : scene.name);
             }
-            else
-            {
-                _selected = null;
-                _selectedGroup = null;
-                FrameAll();
-            }
-
-            Repaint();
+            return names.Count == 0 ? "no scene" : string.Join(" + ", names);
         }
 
         private void Layout()
@@ -355,10 +392,13 @@ namespace AceLand.Injection.Editor.Graph
                 // meatier groups on top; empty ones drop to the bottom where they're easy to spot
                 var column = columns[i]
                     .OrderByDescending(g => g.Nodes.Count)
-                    .ThenBy(g => g.Title)
+                    .ThenBy(g => g.Title, StringComparer.Ordinal)
+                    .ThenBy(g => g.Id, StringComparer.Ordinal)
                     .ToList();
 
-                var y = (tallest - heights[i]) * 0.5f;          // vertical centring
+                var y = VERTICAL_CENTER
+                    ? (tallest - heights[i]) * 0.5f
+                    : 0;
 
                 foreach (var group in column)
                 {
@@ -397,7 +437,10 @@ namespace AceLand.Injection.Editor.Graph
         }
 
         private static IEnumerable<GraphNode> OrderedNodes(GraphGroup group)
-            => group.Nodes.OrderByDescending(n => n.HasError).ThenBy(n => n.Title);
+            => group.Nodes
+                .OrderByDescending(n => n.HasError)
+                .ThenBy(n => n.Title, StringComparer.Ordinal)
+                .ThenBy(n => n.Id, StringComparer.Ordinal);        // ← total order
 
         private void FrameAll()
         {
@@ -578,10 +621,23 @@ namespace AceLand.Injection.Editor.Graph
         {
             if (Event.current.type != EventType.Repaint) return;
 
+            var focus = BuildFocusSet();
+
             Handles.BeginGUI();
+            DrawEdgePass(visible, focus, active: false);      // dim underneath
+            DrawEdgePass(visible, focus, active: true);       // bright on top
+            Handles.EndGUI();
+        }
+
+        private void DrawEdgePass(Dictionary<string, GraphNode> visible, HashSet<string> focus, bool active)
+        {
             foreach (var edge in _graph.Edges)
             {
                 if (edge.Kind == EdgeKind.Provides) continue;
+
+                var isActive = focus.Count > 0 &&
+                               (focus.Contains(edge.FromId) || focus.Contains(edge.ToId));
+                if (isActive != active) continue;
 
                 Vector2 a, b;
                 if (edge.Kind == EdgeKind.ScopeParent)
@@ -598,7 +654,7 @@ namespace AceLand.Injection.Editor.Graph
                     Anchors(from.Rect, to.Rect, out a, out b);
                 }
 
-                var color = edge.Kind switch
+                var hue = edge.Kind switch
                 {
                     EdgeKind.Missing     => new Color(0.90f, 0.35f, 0.35f),
                     EdgeKind.ScopeParent => new Color(0.58f, 0.58f, 0.64f),
@@ -607,17 +663,18 @@ namespace AceLand.Injection.Editor.Graph
                     _                    => new Color(0.46f, 0.76f, 0.52f)
                 };
 
-                var reach = Mathf.Min(80f, Mathf.Abs(a.x - b.x) * 0.5f + 22f);
-                var pull  = new Vector2(a.x > b.x ? -reach : reach, 0);
+                var color = active ? hue : GraphStyles.DimEdge(hue);
                 var width = GraphStyles.ScaleWidth(GraphStyles.WidthFor(edge.Kind), _zoom);
+                if (active) width *= GraphStyles.EdgeActiveBoost;
 
-                GraphStyles.DrawEdge(a, b, a + pull, b - pull, color, width);
+                var reach = Mathf.Min(80f, Mathf.Abs(a.x - b.x) * 0.5f + 22f);
+                var pull = new Vector2(a.x > b.x ? -reach : reach, 0);
+
+                GraphStyles.DrawEdge(a, b, a + pull, b - pull, color, width, backing: active);
 
                 if (_zoom > 0.55f)
                     Arrow(b, b - pull, GraphStyles.ArrowSize * Mathf.Clamp(_zoom, 0.7f, 1.4f), color);
             }
-            
-            Handles.EndGUI();
         }
 
         private void Anchors(Rect from, Rect to, out Vector2 a, out Vector2 b)
@@ -919,7 +976,7 @@ namespace AceLand.Injection.Editor.Graph
                     if (node != null)
                     {
                         SelectNode(node);
-                        if (e.clickCount == 2) TrySelectInHierarchy(SelectTarget.From(node));
+                        if (e.clickCount == 2) OpenScript(SelectTarget.From(node));
                     }
                     else
                     {
@@ -1289,6 +1346,23 @@ namespace AceLand.Injection.Editor.Graph
             public static SelectTarget From(GraphGroup g) => new(
                 g.Title, g.ScenePath, g.ObjectPath, g.ComponentTypeName,
                 g.TypeFullName ?? g.ComponentTypeName, g.Origin, g.ResolvedType, g.Target);
+        }
+
+        private HashSet<string> BuildFocusSet()
+        {
+            var focus = new HashSet<string>();
+
+            var node = _selected ?? _hover;
+            if (node != null) focus.Add(node.Id);
+
+            var group = _selectedGroup ?? _hoverGroup;
+            if (group != null)
+            {
+                focus.Add(group.Id);
+                foreach (var member in group.Nodes) focus.Add(member.Id);
+            }
+
+            return focus;
         }
     }
 }

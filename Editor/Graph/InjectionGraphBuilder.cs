@@ -48,7 +48,7 @@ namespace AceLand.Injection.Editor.Graph
                 AddScope(graph, global, null);
 
                 var roots = new List<GameObject>();
-                for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+                for (var i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
                 {
                     var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
                     if (scene.isLoaded) roots.AddRange(scene.GetRootGameObjects());
@@ -94,8 +94,11 @@ namespace AceLand.Injection.Editor.Graph
                     }
                 }
 
-                var sceneRoot = scopes.Where(built.ContainsKey).Select(s => built[s]).FirstOrDefault() ?? global;
-
+                var sceneRoot = scopes
+                    .Where(s => s.transform.parent == null && built.ContainsKey(s))
+                    .Select(s => built[s])
+                    .FirstOrDefault() ?? global;
+                
                 foreach (var root in roots)
                 foreach (var behaviour in root.GetComponentsInChildren<MonoBehaviour>(true))
                 {
@@ -105,7 +108,7 @@ namespace AceLand.Injection.Editor.Graph
             }
             finally
             {
-                for (int i = containers.Count - 1; i >= 0; i--)
+                for (var i = containers.Count - 1; i >= 0; i--)
                 {
                     try { containers[i].Dispose(); } catch { /* ignored */ }
                 }
@@ -139,7 +142,7 @@ namespace AceLand.Injection.Editor.Graph
             {
                 if (behaviour == null || behaviour is LifetimeScope) continue;
                 if (!InjectionMetadata.HasAnyInjection(behaviour.GetType())) continue;
-                AddConsumer(graph, behaviour, LifetimeScope.ResolverFor(behaviour.gameObject));
+                AddConsumer(graph, behaviour, SafeResolverFor(behaviour.gameObject));
             }
 
             return graph;
@@ -148,11 +151,11 @@ namespace AceLand.Injection.Editor.Graph
         // ------------------------------------------------------------ nodes
 
         private static void AddScope(InjectionGraph graph, IObjectResolver resolver, IObjectResolver parent,
-                             LifetimeScope source = null)
+                     LifetimeScope source = null)
         {
             if (resolver is not IContainerIntrospection introspect) return;
 
-            var id = InjectionGraph.ScopeId(resolver);
+            var id = graph.ScopeIdFor(resolver, source);
             var depth = introspect.Depth;
 
             var group = graph.AddGroup(new GraphGroup
@@ -163,7 +166,7 @@ namespace AceLand.Injection.Editor.Graph
                 ColorIndex = depth,
                 Depth = depth,
                 Target = source,
-                ScenePath = source != null ? graph.Context : null,
+                ScenePath = source != null ? source.gameObject.scene.path : null,
                 ObjectPath = source != null ? HierarchyPath(source.transform) : null,
                 ComponentTypeName = source?.GetType().FullName,
                 ResolvedType = source?.GetType(),
@@ -171,20 +174,25 @@ namespace AceLand.Injection.Editor.Graph
                 Origin = source != null ? GraphOrigin.For(source.GetType()) : ""
             });
 
-            if (parent != null)
-                graph.Connect(id, InjectionGraph.ScopeId(parent), EdgeKind.ScopeParent);
+            // parent scopes are added first (depth-ordered), so its id already exists
+            var parentId = graph.ExistingScopeId(parent);
+            if (parentId != null)
+                graph.Connect(id, parentId, EdgeKind.ScopeParent);
+
+            var used = new Dictionary<string, int>();
 
             foreach (var reg in introspect.LocalRegistrations)
             {
                 if (reg.Kind == RegistrationKind.Container) continue;
 
-                // the scope's own RegisterInstance(this) is plumbing, not architecture
                 if (reg is { Kind: RegistrationKind.Instance, ImplementationType: not null } &&
                     typeof(LifetimeScope).IsAssignableFrom(reg.ImplementationType)) continue;
 
+                var nodeId = graph.RegistrationId(id, reg, used);
+
                 var node = graph.Add(new GraphNode
                 {
-                    Id = InjectionGraph.RegId(reg.Serial),
+                    Id = nodeId,
                     Kind = NodeKind.Registration,
                     Title = reg.DisplayName,
                     Namespace = reg.ImplementationType?.Namespace,
@@ -202,41 +210,45 @@ namespace AceLand.Injection.Editor.Graph
                 foreach (var contract in reg.ContractTypes)
                     if (contract != reg.ImplementationType) node.Contracts.Add(contract.Name);
 
-                if (reg.Kind == RegistrationKind.Factory) node.Details.Add("factory (opaque)");
-                if (reg.Kind == RegistrationKind.Instance) node.Details.Add("pre-built instance");
+                switch (reg.Kind)
+                {
+                    case RegistrationKind.Factory:
+                        node.Details.Add("factory (opaque)");
+                        break;
+                    case RegistrationKind.Instance:
+                        node.Details.Add("pre-built instance");
+                        break;
+                }
 
                 group.Nodes.Add(node);
-                graph.Connect(id, node.Id, EdgeKind.Provides);
+                graph.Connect(id, nodeId, EdgeKind.Provides);
             }
 
             LinkServiceDependencies(graph, introspect, group);
-            
+
             if (source != null && group.Nodes.Count == 0)
             {
                 group.IsWarning = true;
-
                 if (source.InjectionTargetMode == InjectionTarget.None)
                     group.Notes.Add("No registrations and Injection Target = None. " +
                                     "This scope does nothing — safe to delete.");
                 else
                     group.Notes.Add($"No registrations. Only provides injection " +
                                     $"({source.InjectionTargetMode}) and a disposal boundary.");
-
-                if (source.IsPersistent)
-                    group.Notes.Add("Persistent (DontDestroyOnLoad).");
+                if (source.IsPersistent) group.Notes.Add("Persistent (DontDestroyOnLoad).");
             }
         }
 
         /// <summary>Registration → registration edges: the service dependency graph.</summary>
         private static void LinkServiceDependencies(InjectionGraph graph, IContainerIntrospection introspect,
-                                            GraphGroup group)
+            GraphGroup group)
         {
             foreach (var reg in introspect.LocalRegistrations)
             {
                 if (reg.Kind != RegistrationKind.Type || reg.ImplementationType == null) continue;
 
-                var nodeId = InjectionGraph.RegId(reg.Serial);
-                if (graph.Find(nodeId) == null) continue;
+                var nodeId = graph.RegistrationIdBySerial(reg.Serial);      // ← lookup, not construct
+                if (nodeId == null || graph.Find(nodeId) == null) continue;
 
                 IReadOnlyList<InjectDependency> dependencies;
                 try { dependencies = InjectionMetadata.GetDependencies(reg.ImplementationType); }
@@ -251,8 +263,8 @@ namespace AceLand.Injection.Editor.Graph
 
                     if (introspect.TryDescribeResolution(contract, dependency.Id, out var target, out _))
                     {
-                        var targetId = InjectionGraph.RegId(target.Serial);
-                        if (targetId != nodeId && graph.Find(targetId) != null)
+                        var targetId = graph.RegistrationIdBySerial(target.Serial);
+                        if (targetId != null && targetId != nodeId && graph.Find(targetId) != null)
                             graph.Connect(nodeId, targetId, edgeKind, dependency.MemberName);
                     }
                     else if (!dependency.Optional)
@@ -329,7 +341,7 @@ namespace AceLand.Injection.Editor.Graph
                 Subtitle = path,
                 OwnerScopeId = group.Id,
                 Target = behaviour,
-                ScenePath = graph.Context,
+                ScenePath = behaviour.gameObject.scene.path,
                 ObjectPath = path,
                 ComponentTypeName = type.FullName
             });
@@ -351,7 +363,9 @@ namespace AceLand.Injection.Editor.Graph
                 if (introspect != null &&
                     introspect.TryDescribeResolution(contract, dependency.Id, out var info, out _))
                 {
-                    graph.Connect(consumerId, InjectionGraph.RegId(info.Serial), edgeKind, dependency.MemberName);
+                    var targetId = graph.RegistrationIdBySerial(info.Serial);
+                    if (targetId != null)
+                        graph.Connect(consumerId, targetId, edgeKind, dependency.MemberName);
                     continue;
                 }
 
@@ -369,6 +383,15 @@ namespace AceLand.Injection.Editor.Graph
         }
 
         // ------------------------------------------------------------ helpers
+
+        private static readonly Dictionary<IObjectResolver, string> scopeIds = new();
+
+        static IObjectResolver SafeResolverFor(GameObject go)
+        {
+            var scope = LifetimeScope.OwningScopeOf(go);      // parents → scene root scope
+            if (scope != null && scope.IsBuilt) return scope.Resolver;
+            return DI.IsGlobalBuilt ? DI.Global : null;       // never force a rebuild
+        }
 
         private static (Type, EdgeKind) Unwrap(Type type)
         {
@@ -394,7 +417,7 @@ namespace AceLand.Injection.Editor.Graph
 
         private static int Depth(Transform t)
         {
-            int d = 0;
+            var d = 0;
             for (var c = t.parent; c != null; c = c.parent) d++;
             return d;
         }

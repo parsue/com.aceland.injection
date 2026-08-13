@@ -180,7 +180,11 @@ namespace AceLand.Injection
             return null;
         }
 
-        public static IObjectResolver ResolverFor(GameObject go)
-            => (go != null ? NearestScope(go.transform)?.Resolver : null) ?? DI.Global;
+        /// <summary>
+        /// Scope that would inject this object, or null if none would.
+        /// Unlike ResolverFor, this never triggers DI.Global's lazy build.
+        /// </summary>
+        public static LifetimeScope OwningScopeOf(GameObject go)
+            => go != null ? NearestScope(go.transform) : null;
     }
 }

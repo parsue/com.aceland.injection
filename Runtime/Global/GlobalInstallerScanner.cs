@@ -48,7 +48,7 @@ namespace AceLand.Injection
 #endif
         }
 
-        static void AddAssemblyAttributes(Assembly asm, List<(int, IInstaller)> found)
+        private static void AddAssemblyAttributes(Assembly asm, List<(int, IInstaller)> found)
         {
             object[] attrs;
             try { attrs = asm.GetCustomAttributes(typeof(InjectionInstallerAttribute), false); }
@@ -60,7 +60,7 @@ namespace AceLand.Injection
             }
         }
 
-        static void TryAddType(Type t, List<(int, IInstaller)> found)
+        private static void TryAddType(Type t, List<(int, IInstaller)> found)
         {
             if (t.IsAbstract || t.IsInterface) return;
             if (typeof(UnityEngine.Object).IsAssignableFrom(t)) return;
@@ -70,7 +70,7 @@ namespace AceLand.Injection
             if (i != null) found.Add((auto.Order, i));
         }
 
-        static IInstaller Instantiate(Type t)
+        private static IInstaller Instantiate(Type t)
         {
             try { return (IInstaller)Activator.CreateInstance(t, true); }
             catch (Exception e)

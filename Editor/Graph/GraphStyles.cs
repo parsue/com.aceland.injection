@@ -32,9 +32,22 @@ namespace AceLand.Injection.Editor.Graph
         public const float EdgeWidthScope      = 2.4f;   // parent chain — background info
         public const float ArrowSize           = 11f;
         public const float EdgeZoomScale       = 0.55f;  // 0 = fixed px, 1 = fully zoom-scaled
+        public const float EdgeDimAlpha        = 0.50f;
+        public const float EdgeDimSaturation   = 0.22f;  // 0 = pure grey, 1 = full hue
+        public const float EdgeActiveBoost     = 1.35f;  // width multiplier when focused
 
         private const int BEZIER_SEGMENTS = 20;
         private static readonly Vector3[] bezierBuffer = new Vector3[BEZIER_SEGMENTS + 1];
+        
+        /// <summary>Desaturated, translucent version for unfocused connections.</summary>
+        public static Color DimEdge(Color color)
+        {
+            var luma = color.r * 0.3f + color.g * 0.59f + color.b * 0.11f;
+            var grey = new Color(luma * 0.5f, luma * 0.5f, luma * 0.55f);
+            var mixed = Color.Lerp(grey, color, EdgeDimSaturation);
+            mixed.a = EdgeDimAlpha;
+            return mixed;
+        }
 
         public static float WidthFor(EdgeKind kind) => kind switch
         {
@@ -164,11 +177,11 @@ namespace AceLand.Injection.Editor.Graph
             Handles.color = color;
 
             var startX = Mathf.Repeat(pan.x, step);
-            for (float x = startX; x < clip.width; x += step)
+            for (var x = startX; x < clip.width; x += step)
                 Handles.DrawLine(new Vector3(x, 0), new Vector3(x, clip.height));
 
             var startY = Mathf.Repeat(pan.y, step);
-            for (float y = startY; y < clip.height; y += step)
+            for (var y = startY; y < clip.height; y += step)
                 Handles.DrawLine(new Vector3(0, y), new Vector3(clip.width, y));
         }
         
@@ -177,9 +190,9 @@ namespace AceLand.Injection.Editor.Graph
         /// a sampled poly-line with a dark backing pass stays solid and readable.
         /// </summary>
         public static void DrawEdge(Vector2 a, Vector2 b, Vector2 tangentA, Vector2 tangentB,
-            Color color, float width)
+            Color color, float width, bool backing = true)
         {
-            for (int i = 0; i <= BEZIER_SEGMENTS; i++)
+            for (var i = 0; i <= BEZIER_SEGMENTS; i++)
             {
                 var t = i / (float)BEZIER_SEGMENTS;
                 var u = 1f - t;
@@ -188,8 +201,11 @@ namespace AceLand.Injection.Editor.Graph
                 bezierBuffer[i] = new Vector3(p.x, p.y, 0f);
             }
 
-            Handles.color = new Color(0f, 0f, 0f, 0.5f);          // contrast backing
-            Handles.DrawAAPolyLine(width + 2.5f, bezierBuffer);
+            if (backing)
+            {
+                Handles.color = new Color(0f, 0f, 0f, 0.5f);
+                Handles.DrawAAPolyLine(width + 2.5f, bezierBuffer);
+            }
 
             Handles.color = color;
             Handles.DrawAAPolyLine(width, bezierBuffer);
@@ -221,7 +237,7 @@ namespace AceLand.Injection.Editor.Graph
             const string ell = "…";
             if (fromLeft)
             {
-                for (int i = 1; i < text.Length; i++)
+                for (var i = 1; i < text.Length; i++)
                 {
                     var candidate = ell + text.Substring(i);
                     if (style.CalcSize(new GUIContent(candidate)).x <= width) return candidate;
@@ -229,7 +245,7 @@ namespace AceLand.Injection.Editor.Graph
             }
             else
             {
-                for (int i = text.Length - 1; i > 0; i--)
+                for (var i = text.Length - 1; i > 0; i--)
                 {
                     var candidate = text.Substring(0, i) + ell;
                     if (style.CalcSize(new GUIContent(candidate)).x <= width) return candidate;

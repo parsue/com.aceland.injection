@@ -213,7 +213,7 @@ namespace AceLand.Injection.Editor.Validation
             }
             finally
             {
-                for (int i = containers.Count - 1; i >= 0; i--)
+                for (var i = containers.Count - 1; i >= 0; i--)
                 {
                     try { containers[i].Dispose(); }
                     catch (Exception e) { Debug.LogWarning("[Injection] dispose failed: " + e.Message); }
@@ -253,7 +253,7 @@ namespace AceLand.Injection.Editor.Validation
 
         private static int Depth(Transform t)
         {
-            int depth = 0;
+            var depth = 0;
             for (var c = t.parent; c != null; c = c.parent) depth++;
             return depth;
         }

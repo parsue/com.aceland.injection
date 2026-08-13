@@ -6,8 +6,8 @@ using System.Reflection;
 namespace AceLand.Injection
 {
     public sealed class Registration
-    {   
-        static int _nextSerial;
+    {
+        private static int _nextSerial;
         internal readonly int Serial = System.Threading.Interlocked.Increment(ref _nextSerial);
         
         public Type ImplementationType;
