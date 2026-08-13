@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 --- 
 
+## [0.2.0] - 2026-08-13
+- beta published
+
 ## [0.1.1] - 2026-08-12
 dev optimize and bug fix
 
