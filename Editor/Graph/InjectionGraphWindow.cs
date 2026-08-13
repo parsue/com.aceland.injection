@@ -8,13 +8,13 @@ using Object = UnityEngine.Object;
 
 namespace AceLand.Injection.Editor.Graph
 {
-    public sealed class InjectionGraphWindow : EditorWindow
+    internal sealed class InjectionGraphWindow : EditorWindow
     {
         private const string LIVE_KEY = "AceLand.Injection.Graph.Live";
         private const string AUTO_KEY = "AceLand.Injection.Graph.AutoRefresh";
         private const string AUTO_SCAN_KEY = "AceLand.Injection.Graph.AutoScan";
         private const double HIERARCHY_DEBOUNCE = 0.4;
-        private const bool VERTICAL_CENTER = false;
+        private static readonly bool VERTICAL_CENTER = false;
         
         // ── layout metrics ──
         private const float GROUP_WIDTH  = 292f;

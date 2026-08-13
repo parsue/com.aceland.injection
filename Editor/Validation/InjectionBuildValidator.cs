@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace AceLand.Injection.Editor.Validation
 {
-    public sealed class InjectionBuildValidator : IPreprocessBuildWithReport
+    internal sealed class InjectionBuildValidator : IPreprocessBuildWithReport
     {
         public int callbackOrder => -1000;
 

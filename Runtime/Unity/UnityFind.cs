@@ -5,9 +5,9 @@ using Object = UnityEngine.Object;
 namespace AceLand.Injection
 {
     /// <summary>Version-safe FindObject* wrappers (the plural overloads exist on every supported version).</summary>
-    public static class UnityFind
+    internal static class UnityFind
     {
-        private static FindObjectsInactive Inactive(bool includeInactive)
+        public static FindObjectsInactive Inactive(bool includeInactive)
             => includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude;
         
         public static T First<T>(bool includeInactive) where T : Component

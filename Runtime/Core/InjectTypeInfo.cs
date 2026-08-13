@@ -10,14 +10,14 @@ namespace AceLand.Injection
         private const BindingFlags FLAGS = BindingFlags.Instance | BindingFlags.Public |
                                            BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
-        private static readonly Dictionary<Type, InjectTypeInfo> cache = new Dictionary<Type, InjectTypeInfo>();
-        private static readonly object cacheLock = new object();
+        private static readonly Dictionary<Type, InjectTypeInfo> cache = new();
+        private static readonly object cacheLock = new();
 
         public readonly Type Type;
         public readonly ConstructorInfo[] Constructors;
         public readonly ConstructorInfo AttributedConstructor;
-        public readonly List<MemberTarget> Members = new List<MemberTarget>();
-        public readonly List<MethodTarget> Methods = new List<MethodTarget>();
+        public readonly List<MemberTarget> Members = new();
+        public readonly List<MethodTarget> Methods = new();
 
         public struct MemberTarget
         {

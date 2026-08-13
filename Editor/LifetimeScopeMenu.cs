@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace AceLand.Injection.Editor
 {
-    static class LifetimeScopeMenu
+    internal static class LifetimeScopeMenu
     {
         [MenuItem("GameObject/AceLand/Lifetime Scope", false, 10)]
         private static void Create(MenuCommand cmd)

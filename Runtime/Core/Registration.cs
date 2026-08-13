@@ -13,7 +13,7 @@ namespace AceLand.Injection
         public Type ImplementationType;
         public Lifetime Lifetime;
         public object Id;
-        public readonly List<Type> ContractTypes = new List<Type>();
+        public readonly List<Type> ContractTypes = new();
         public Func<IObjectResolver, object> Factory;
         public object Instance;
         public bool OwnsInstance = true;

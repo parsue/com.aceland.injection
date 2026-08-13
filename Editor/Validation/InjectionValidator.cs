@@ -7,9 +7,9 @@ using UnityEngine;
 
 namespace AceLand.Injection.Editor.Validation
 {
-    public enum IssueSeverity { Info, Warning, Error }
+    internal enum IssueSeverity { Info, Warning, Error }
 
-    public struct ValidationIssue
+    internal struct ValidationIssue
     {
         public IssueSeverity Severity;
         public string Context;       // scene / prefab asset path
@@ -27,7 +27,7 @@ namespace AceLand.Injection.Editor.Validation
         }
     }
 
-    public sealed class ValidationReport
+    internal sealed class ValidationReport
     {
         public readonly List<ValidationIssue> Issues = new();
         public int ScenesChecked, ScopesBuilt, ObjectsChecked, DependenciesChecked;
@@ -37,7 +37,7 @@ namespace AceLand.Injection.Editor.Validation
         public int WarningCount => Issues.Count(i => i.Severity == IssueSeverity.Warning);
     }
 
-    public static class InjectionValidator
+    internal static class InjectionValidator
     {
         // ------------------------------------------------------------------ entry points
 

@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace AceLand.Injection.Editor.Validation
 {
-    public sealed class InjectionValidationWindow : EditorWindow
+    internal sealed class InjectionValidationWindow : EditorWindow
     {
         private ValidationReport _report;
         private Vector2 _scroll;

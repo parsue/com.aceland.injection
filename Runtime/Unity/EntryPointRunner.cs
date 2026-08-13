@@ -9,11 +9,11 @@ namespace AceLand.Injection
     [DefaultExecutionOrder(-4000)]
     public sealed class EntryPointRunner : MonoBehaviour
     {
-        private readonly List<IInitializable> _init = new List<IInitializable>();
-        private readonly List<IAsyncStartable> _async = new List<IAsyncStartable>();
-        private readonly List<ITickable> _tick = new List<ITickable>();
-        private readonly List<IFixedTickable> _fixed = new List<IFixedTickable>();
-        private readonly List<ILateTickable> _late = new List<ILateTickable>();
+        private readonly List<IInitializable> _init = new();
+        private readonly List<IAsyncStartable> _async = new();
+        private readonly List<ITickable> _tick = new();
+        private readonly List<IFixedTickable> _fixed = new();
+        private readonly List<ILateTickable> _late = new();
 
         private CancellationTokenSource _cts;
         private bool _started;

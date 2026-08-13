@@ -6,12 +6,12 @@ using UnityEngine.SceneManagement;
 
 namespace AceLand.Injection.Editor.Graph
 {
-    public static class InjectionGraphExporter
+    internal static class InjectionGraphExporter
     {
         // ------------------------------------------------------------ Mermaid
 
         /// <summary>Mermaid flowchart — renders natively in GitBook, GitHub and Notion.</summary>
-        public static string ToMermaid(InjectionGraph graph, bool includeConsumers = true)
+        private static string ToMermaid(InjectionGraph graph, bool includeConsumers = true)
         {
             var sb = new StringBuilder();
             sb.AppendLine("```mermaid");

@@ -6,7 +6,7 @@ using UnityEngine;
 namespace AceLand.Injection.Editor.Validation
 {
     [FilePath("ProjectSettings/AceLandInjectionValidation.asset", FilePathAttribute.Location.ProjectFolder)]
-    public sealed class InjectionValidationSettings : ScriptableSingleton<InjectionValidationSettings>
+    internal sealed class InjectionValidationSettings : ScriptableSingleton<InjectionValidationSettings>
     {
         public bool validateOnBuild = true;
         public bool failBuildOnError = true;

@@ -5,9 +5,9 @@ using UnityEngine;
 
 namespace AceLand.Injection.Editor.Graph
 {
-    public enum NodeKind { Scope, Registration, Consumer, Unresolved }
+    internal enum NodeKind { Scope, Registration, Consumer, Unresolved }
 
-    public enum EdgeKind
+    internal enum EdgeKind
     {
         ScopeParent,     // scope → parent scope
         Provides,        // scope → registration
@@ -18,7 +18,7 @@ namespace AceLand.Injection.Editor.Graph
         Missing          // consumer → unresolved
     }
     
-    public sealed class GraphGroup
+    internal sealed class GraphGroup
     {
         public string Id;
         public string Title;
@@ -43,7 +43,7 @@ namespace AceLand.Injection.Editor.Graph
         public bool IsScope => Id != "group:unresolved" && Id != "group:consumers";
     }
 
-    public sealed class GraphNode
+    internal sealed class GraphNode
     {
         public string Id;
         public NodeKind Kind;
@@ -67,7 +67,7 @@ namespace AceLand.Injection.Editor.Graph
         public string Origin;              // "com.aceland.library 2.2.3"
     }
 
-    public sealed class GraphEdge
+    internal sealed class GraphEdge
     {
         public string FromId;
         public string ToId;
@@ -75,7 +75,7 @@ namespace AceLand.Injection.Editor.Graph
         public string Label;
     }
 
-    public sealed class InjectionGraph
+    internal sealed class InjectionGraph
     {
         public string Context = "";                                    // scene path or "Runtime"
         public readonly List<GraphNode> Nodes = new();

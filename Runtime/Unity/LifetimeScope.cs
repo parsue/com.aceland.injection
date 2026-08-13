@@ -14,8 +14,8 @@ namespace AceLand.Injection
     public class LifetimeScope : MonoBehaviour
     {
         [SerializeField] private LifetimeScope parentScope;
-        [SerializeField] private List<MonoBehaviour> installers = new List<MonoBehaviour>();
-        [SerializeField] private List<ScriptableObject> assetInstallers = new List<ScriptableObject>();
+        [SerializeField] private List<MonoBehaviour> installers = new();
+        [SerializeField] private List<ScriptableObject> assetInstallers = new();
         [SerializeField] private InjectionTarget injectionTarget = InjectionTarget.Scene;
         [SerializeField] private bool dontDestroyOnLoad;
         [Tooltip("When no scope is found in parents, fall back to the persistent (DontDestroyOnLoad) scope.")]
@@ -72,7 +72,7 @@ namespace AceLand.Injection
             Resolver = null;
         }
 
-        public IObjectResolver Build()
+        private IObjectResolver Build()
         {
             if (Resolver != null) return Resolver;
 
@@ -159,7 +159,7 @@ namespace AceLand.Injection
             }
         }
 
-        internal static LifetimeScope NearestScope(Transform t)
+        private static LifetimeScope NearestScope(Transform t)
         {
             for (var c = t; c != null; c = c.parent)
             {

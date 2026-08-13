@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace AceLand.Injection.Editor.Graph
 {
-    public static class InjectionGraphBuilder
+    internal static class InjectionGraphBuilder
     {
         // ------------------------------------------------------------ edit mode
 
@@ -126,7 +127,7 @@ namespace AceLand.Injection.Editor.Graph
 
             if (DI.IsGlobalBuilt) AddScope(graph, DI.Global, null);
 
-            var scopes = UnityFind.All(typeof(LifetimeScope), true)
+            var scopes = FindAllObjects(typeof(LifetimeScope), true)
                 .Cast<LifetimeScope>()
                 .Where(s => s != null && s.IsBuilt)
                 .OrderBy(s => Depth(s.transform))
@@ -138,7 +139,7 @@ namespace AceLand.Injection.Editor.Graph
                 AddScope(graph, scope.Resolver, introspect?.ParentResolver, scope);
             }
 
-            foreach (var behaviour in UnityFind.All(typeof(MonoBehaviour), true).Cast<MonoBehaviour>())
+            foreach (var behaviour in FindAllObjects(typeof(MonoBehaviour), true).Cast<MonoBehaviour>())
             {
                 if (behaviour == null || behaviour is LifetimeScope) continue;
                 if (!InjectionMetadata.HasAnyInjection(behaviour.GetType())) continue;
@@ -224,7 +225,7 @@ namespace AceLand.Injection.Editor.Graph
                 graph.Connect(id, nodeId, EdgeKind.Provides);
             }
 
-            LinkServiceDependencies(graph, introspect, group);
+            LinkServiceDependencies(graph, introspect);
 
             if (source != null && group.Nodes.Count == 0)
             {
@@ -240,8 +241,7 @@ namespace AceLand.Injection.Editor.Graph
         }
 
         /// <summary>Registration → registration edges: the service dependency graph.</summary>
-        private static void LinkServiceDependencies(InjectionGraph graph, IContainerIntrospection introspect,
-            GraphGroup group)
+        private static void LinkServiceDependencies(InjectionGraph graph, IContainerIntrospection introspect)
         {
             foreach (var reg in introspect.LocalRegistrations)
             {
@@ -384,8 +384,6 @@ namespace AceLand.Injection.Editor.Graph
 
         // ------------------------------------------------------------ helpers
 
-        private static readonly Dictionary<IObjectResolver, string> scopeIds = new();
-
         static IObjectResolver SafeResolverFor(GameObject go)
         {
             var scope = LifetimeScope.OwningScopeOf(go);      // parents → scene root scope
@@ -451,6 +449,23 @@ namespace AceLand.Injection.Editor.Graph
                 if (scope != null && built.TryGetValue(scope, out var r)) return r;
             }
             return sceneRoot;
+        }
+        
+        private static FindObjectsInactive Inactive(bool includeInactive)
+            => includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude;
+
+        private static Component[] FindAllObjects(Type type, bool includeInactive)
+        {
+#if UNITY_2023_1_OR_NEWER || UNITY_6000_0_OR_NEWER
+            var objects = Object.FindObjectsByType(type, Inactive(includeInactive));
+#elif UNITY_2020_1_OR_NEWER
+            var objects = Object.FindObjectsOfType(type, includeInactive);
+#else
+            var objects = Object.FindObjectsOfType(type);
+#endif
+            var result = new Component[objects.Length];
+            for (int i = 0; i < objects.Length; i++) result[i] = (Component)objects[i];
+            return result;
         }
     }
 }

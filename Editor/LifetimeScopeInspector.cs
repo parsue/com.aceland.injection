@@ -5,7 +5,7 @@ using UnityEngine;
 namespace AceLand.Injection.Editor
 {
     [CustomEditor(typeof(LifetimeScope), true)]
-    public class LifetimeScopeInspector : UnityEditor.Editor
+    internal class LifetimeScopeInspector : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
