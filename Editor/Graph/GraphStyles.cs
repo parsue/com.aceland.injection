@@ -20,7 +20,7 @@ namespace AceLand.Injection.Editor.Graph
         // ── nodes ──
         public static readonly Color NodeBg       = new(0.239f, 0.243f, 0.255f);
         public static readonly Color NodeBgHover  = new(0.286f, 0.294f, 0.310f);
-        public static readonly Color NodeOutline  = new(1f, 1f, 1f, 0.56f);
+        public static readonly Color NodeOutline  = new(1f, 1f, 1f, 0.15f);
         public static readonly Color SelectedRing = Color.white;
         public static readonly Color LiveDot      = new(0.42f, 0.84f, 0.50f);
         public static readonly Color ErrorHue     = new(0.90f, 0.35f, 0.35f);

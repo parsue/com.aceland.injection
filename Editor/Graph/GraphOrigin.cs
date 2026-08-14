@@ -1,4 +1,5 @@
-﻿using System;
+﻿// GraphOrigin.cs
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Compilation;
@@ -8,21 +9,6 @@ using Object = UnityEngine.Object;
 
 namespace AceLand.Injection.Editor.Graph
 {
-    internal readonly struct ScriptTarget
-    {
-        public readonly Type Type;
-        public readonly MonoScript Script;
-        public readonly bool FromPackage;
-
-        public ScriptTarget(Type type, MonoScript script, bool fromPackage)
-        {
-            Type = type; Script = script; FromPackage = fromPackage;
-        }
-
-        public string Label => Type != null ? TypeNames.Short(Type) : Script?.name ?? "?";
-    }
-
-    
     /// <summary>Resolves where a type comes from (package / assembly) and where its script lives.</summary>
     internal static class GraphOrigin
     {
@@ -85,107 +71,31 @@ namespace AceLand.Injection.Editor.Graph
             => !string.IsNullOrEmpty(origin) &&
                (origin.StartsWith("com.", StringComparison.Ordinal) || origin.EndsWith("(package)"));
 
-        // ── scripts ──
-
-        private static readonly string[] searchFolders = { "Assets", "Packages" };
-        private static readonly Dictionary<string, ScriptTarget[]> targetCache = new();
+        // ── scripts (delegated to ScriptLocator) ──
 
         /// <summary>
-        /// Every script a type could reasonably open: its own definition, plus each generic argument.
+        /// Every script a type could reasonably open: its own declaration, plus each generic argument.
         /// IObjectPool&lt;PlayerInfoCard&gt; → [IObjectPool, PlayerInfoCard]
         /// </summary>
         public static ScriptTarget[] FindScripts(Type type, string typeFullName, Object sceneTarget)
-        {
-            // exact match for scene objects
-            MonoScript exact = sceneTarget switch
-            {
-                MonoBehaviour mb => MonoScript.FromMonoBehaviour(mb),
-                ScriptableObject so => MonoScript.FromScriptableObject(so),
-                _ => null
-            };
-            if (exact != null)
-                return new[] { new ScriptTarget(type, exact, IsPackagePath(AssetDatabase.GetAssetPath(exact))) };
-
-            var key = type?.AssemblyQualifiedName ?? typeFullName;
-            if (string.IsNullOrEmpty(key)) return Array.Empty<ScriptTarget>();
-            if (targetCache.TryGetValue(key, out var cached)) return cached;
-
-            var results = new List<ScriptTarget>();
-
-            if (type != null)
-            {
-                foreach (var candidate in Candidates(type))
-                {
-                    var script = Lookup(candidate, TypeNames.Short(candidate));
-                    if (script != null)
-                        results.Add(new ScriptTarget(candidate, script,
-                            IsPackagePath(AssetDatabase.GetAssetPath(script))));
-                }
-            }
-            else
-            {
-                var script = Lookup(null, ShortName(typeFullName));
-                if (script != null)
-                    results.Add(new ScriptTarget(null, script,
-                        IsPackagePath(AssetDatabase.GetAssetPath(script))));
-            }
-
-            var array = results.ToArray();
-            targetCache[key] = array;
-            return array;
-        }
+            => ScriptLocator.Find(type, typeFullName, sceneTarget);
 
         /// <summary>Best single script: user code beats package code, definition beats arguments.</summary>
         public static MonoScript FindScript(Type type, string typeFullName, Object sceneTarget)
+            => FindScript(type, typeFullName, sceneTarget, out _);
+
+        /// <summary>As above, plus the line the declaration starts on (0 when unknown).</summary>
+        public static MonoScript FindScript(Type type, string typeFullName, Object sceneTarget, out int line)
         {
-            var targets = FindScripts(type, typeFullName, sceneTarget);
-            if (targets.Length == 0) return null;
-
-            foreach (var t in targets)
-                if (!t.FromPackage) return t.Script;      // editable wins
-
-            return targets[0].Script;
-        }
-
-        private static IEnumerable<Type> Candidates(Type type)
-        {
-            if (type == null) yield break;
-
-            if (type.IsArray)
+            if (ScriptLocator.TryFindBest(type, typeFullName, sceneTarget, out var best))
             {
-                foreach (var t in Candidates(type.GetElementType())) yield return t;
-                yield break;
+                line = best.Line;
+                return best.Script;
             }
 
-            yield return type.IsGenericType && !type.IsGenericTypeDefinition
-                ? type.GetGenericTypeDefinition()
-                : type;
-
-            if (!type.IsGenericType) yield break;
-
-            foreach (var argument in type.GetGenericArguments())
-            foreach (var t in Candidates(argument))
-                yield return t;
+            line = 0;
+            return null;
         }
-
-        private static MonoScript Lookup(Type type, string shortName)
-        {
-            if (string.IsNullOrEmpty(shortName)) return null;
-
-            MonoScript fallback = null;
-            foreach (var guid in AssetDatabase.FindAssets($"{shortName} t:MonoScript", searchFolders))
-            {
-                var script = AssetDatabase.LoadAssetAtPath<MonoScript>(AssetDatabase.GUIDToAssetPath(guid));
-                if (script == null || script.name != shortName) continue;
-
-                if (type != null && script.GetClass() == type) return script;   // exact
-                fallback ??= script;
-            }
-            return fallback;
-        }
-
-        private static bool IsPackagePath(string path)
-            => !string.IsNullOrEmpty(path) && path.StartsWith("Packages/", StringComparison.Ordinal);
 
         /// <summary>
         /// Script-file name for a type. Handles generics, nested types and assembly-qualified strings.
@@ -222,10 +132,14 @@ namespace AceLand.Injection.Editor.Graph
             return name;
         }
 
-        public static void ClearCaches()
+        /// <summary>Per-scan reset. Script lookups survive — they self-invalidate on project change.</summary>
+        public static void ClearCaches() => originCache.Clear();
+
+        /// <summary>Full reset, for script reloads.</summary>
+        public static void ClearAllCaches()
         {
             originCache.Clear();
-            targetCache.Clear();
+            ScriptLocator.ClearCaches();
         }
     }
 }

@@ -17,12 +17,12 @@ namespace AceLand.Injection.Editor.Graph
         private static readonly bool VERTICAL_CENTER = false;
         
         // ── layout metrics ──
-        private const float GROUP_WIDTH  = 292f;
+        private const float GROUP_WIDTH  = 420f;
         private const float GROUP_HEADER = 38f;
         private const float GROUP_PAD    = 14f;
-        private const float GROUP_GAP    = 46f;
-        private const float NODE_HEIGHT  = 72f;
-        private const float NODE_GAP     = 24f;
+        private const float GROUP_GAP    = 72f;
+        private const float NODE_HEIGHT  = 96f;
+        private const float NODE_GAP     = 0f;
         private const float ACCENT_WIDTH = 8f;
         private const float INSPECTOR_WIDTH = 336f;
         private const float MARGIN = 26f;
@@ -63,7 +63,7 @@ namespace AceLand.Injection.Editor.Graph
         }
         
         [UnityEditor.Callbacks.DidReloadScripts]
-        private static void OnScriptsReloaded() => GraphOrigin.ClearCaches();
+        private static void OnScriptsReloaded() => GraphOrigin.ClearAllCaches();
 
         private void OnEnable()
         {
@@ -1117,30 +1117,7 @@ namespace AceLand.Injection.Editor.Graph
             var menu = new GenericMenu();
             var target = SelectTarget.From(group);
 
-            var scripts = GraphOrigin.FindScripts(target.ResolvedType, target.TypeFullName, target.Target);
-
-            if (scripts.Length == 0)
-            {
-                menu.AddDisabledItem(new GUIContent("Ping Script"));
-                menu.AddDisabledItem(new GUIContent("Open Script"));
-            }
-            else if (scripts.Length == 1)
-            {
-                var only = scripts[0];
-                menu.AddItem(new GUIContent("Ping Script"), false, () => Ping(only.Script));
-                menu.AddItem(new GUIContent("Open Script"), false, () => AssetDatabase.OpenAsset(only.Script));
-            }
-            else
-            {
-                foreach (var s in scripts)
-                {
-                    var captured = s;
-                    var suffix = captured.FromPackage ? "  (package)" : "";
-                    menu.AddItem(new GUIContent($"Ping/{captured.Label}{suffix}"), false, () => Ping(captured.Script));
-                    menu.AddItem(new GUIContent($"Open/{captured.Label}{suffix}"), false,
-                        () => AssetDatabase.OpenAsset(captured.Script));
-                }
-            }
+            AddScriptMenuItems(menu, target);
 
             if (target.HasSceneObject)
                 menu.AddItem(new GUIContent("Select in Hierarchy"), false, () => TrySelectInHierarchy(target));
@@ -1173,31 +1150,7 @@ namespace AceLand.Injection.Editor.Graph
             var menu = new GenericMenu();
             var target = SelectTarget.From(node);
 
-            // ── scripts ──
-            var scripts = GraphOrigin.FindScripts(target.ResolvedType, target.TypeFullName, target.Target);
-
-            if (scripts.Length == 0)
-            {
-                menu.AddDisabledItem(new GUIContent("Ping Script"));
-                menu.AddDisabledItem(new GUIContent("Open Script"));
-            }
-            else if (scripts.Length == 1)
-            {
-                var only = scripts[0];
-                menu.AddItem(new GUIContent("Ping Script"), false, () => Ping(only.Script));
-                menu.AddItem(new GUIContent("Open Script"), false, () => AssetDatabase.OpenAsset(only.Script));
-            }
-            else
-            {
-                foreach (var s in scripts)
-                {
-                    var captured = s;
-                    var suffix = captured.FromPackage ? "  (package)" : "";
-                    menu.AddItem(new GUIContent($"Ping/{captured.Label}{suffix}"), false, () => Ping(captured.Script));
-                    menu.AddItem(new GUIContent($"Open/{captured.Label}{suffix}"), false,
-                        () => AssetDatabase.OpenAsset(captured.Script));
-                }
-            }
+            AddScriptMenuItems(menu, target);
 
             if (target.HasSceneObject)
                 menu.AddItem(new GUIContent("Select in Hierarchy"), false, () => TrySelectInHierarchy(target));
@@ -1265,31 +1218,41 @@ namespace AceLand.Injection.Editor.Graph
             EditorGUIUtility.PingObject(script);
         }
 
+        private static void Open(ScriptTarget hit)
+        {
+            if (hit.Script == null) return;
+
+            if (hit.Line > 0) AssetDatabase.OpenAsset(hit.Script, hit.Line);
+            else AssetDatabase.OpenAsset(hit.Script);
+        }
+
         private void PingScript(SelectTarget target)
         {
-            var script = ResolveScript(target);
-            if (script == null)
+            if (!ScriptLocator.TryFindBest(target.ResolvedType, target.TypeFullName, target.Target, out var hit))
             {
-                ShowNotification(new GUIContent(
-                    $"{GraphOrigin.ShortName(target.TypeFullName ?? target.Title)}.cs not found"));
+                NotifyNoSource(target);
                 return;
             }
 
-            Selection.activeObject = script;
-            EditorGUIUtility.PingObject(script);
+            Ping(hit.Script);
         }
 
         private void OpenScript(SelectTarget target)
         {
-            var script = ResolveScript(target);
-            if (script == null)
+            if (!ScriptLocator.TryFindBest(target.ResolvedType, target.TypeFullName, target.Target, out var hit))
             {
-                ShowNotification(new GUIContent(
-                    $"{GraphOrigin.ShortName(target.TypeFullName ?? target.Title)}.cs not found"));
+                NotifyNoSource(target);
                 return;
             }
 
-            AssetDatabase.OpenAsset(script);
+            Open(hit);
+        }
+
+        private void NotifyNoSource(SelectTarget target)
+        {
+            var name = GraphOrigin.ShortName(target.TypeFullName ?? target.Title);
+            ShowNotification(new GUIContent($"No source found for {name}"));
+            if (target.Target != null) EditorGUIUtility.PingObject(target.Target);
         }
 
         private static string RegisterSnippet(GraphNode node)
@@ -1467,6 +1430,34 @@ namespace AceLand.Injection.Editor.Graph
             }
 
             return focus;
+        }
+        
+        private void AddScriptMenuItems(GenericMenu menu, SelectTarget target)
+        {
+            var scripts = GraphOrigin.FindScripts(target.ResolvedType, target.TypeFullName, target.Target);
+
+            if (scripts.Length == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("Ping Script"));
+                menu.AddDisabledItem(new GUIContent("Open Script"));
+                return;
+            }
+
+            if (scripts.Length == 1)
+            {
+                var only = scripts[0];
+                menu.AddItem(new GUIContent("Ping Script"), false, () => Ping(only.Script));
+                menu.AddItem(new GUIContent("Open Script"), false, () => Open(only));
+                return;
+            }
+
+            foreach (var s in scripts)
+            {
+                var captured = s;
+                var suffix = captured.FromPackage ? "  (package)" : "";
+                menu.AddItem(new GUIContent($"Ping/{captured.Label}{suffix}"), false, () => Ping(captured.Script));
+                menu.AddItem(new GUIContent($"Open/{captured.Label}{suffix}"), false, () => Open(captured));
+            }
         }
     }
 }
