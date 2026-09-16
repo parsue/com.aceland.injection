@@ -1,0 +1,6 @@
+﻿{
+  "name": "AceLand.Injection",
+  "rootNamespace": "AceLand.Injection",
+  "references": ["AceLand.Injection.Abstractions"],
+  "autoReferenced": true
+}

@@ -1,0 +1,40 @@
+﻿{
+  "name": "com.aceland.injection",
+  "version": "1.0.1",
+  "displayName": "AceLand Injection",
+  "description": "Dependency injection for Unity Components and plain C# objects. Global cross-package container, source-generated injectors, async entry points, object pooling, build-time validation.",
+  "unity": "2022.3",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parsue/com.aceland.injection.git"
+  },
+  "author": {
+    "name": "Parsue - AceLand Workshop",
+    "url": "https://www.parsue.io/",
+    "email": "parsue@gmail.com"
+  },
+  "keywords": [
+    "di",
+    "ioc",
+    "dependency-injection",
+    "component",
+    "aceland"
+  ],
+  "dependencies": {
+    "com.aceland.injection.abstractions": "1.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://package.openupm.com"
+  },
+  "documentationUrl": "https://docs.parsue.io/aceland-unity-packages/core-packages/injection-exp",
+  "type": "utility",
+  "licensesUrl": "https://docs.parsue.io/aceland-unity-packages/getting-started/license",
+  "changelogUrl": "https://docs.parsue.io/aceland-unity-packages/core-packages/injection-exp/change-log",
+  "samples": [
+    {
+      "displayName": "Injection Sample",
+      "description": "Simple injection sample code",
+      "path": "Samples~/SampleInjection"
+    }
+  ]
+}

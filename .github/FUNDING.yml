@@ -1,0 +1,5 @@
+# GitHub Sponsors funding config for com.aceland.injection.
+# Renders a "Sponsor" button on the repository page.
+# Sponsorship is an honorary community contribution only: it grants a
+# Discord "Sponsor" role, NOT a license / Editor-tools unlock / paid support.
+github: [parsue]
