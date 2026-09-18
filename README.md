@@ -1,8 +1,11 @@
 # AceLand Injection
 
+[![Open Runtime, Paid Editor Tools](https://img.shields.io/badge/Open%20Runtime,%20Paid%20Editor%20Tools-C24B42)](https://docs.parsue.io/aceland-unity-packages/open-and-paid/open-core-and-paid-editor-tools)
+[![ECS Ready](https://img.shields.io/badge/ECS%20Ready-4A5BC2)]()
+[![CoreCLR Ready](https://img.shields.io/badge/CoreCLR%20Ready-4A5BC2)]()   
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/parsue)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/XsCYGnYzuc)
-[![Docs](https://img.shields.io/badge/Docs-GitBook-3884FF?logo=gitbook&logoColor=white)](https://docs.parsue.io/aceland-unity-packages)
+[![Docs](https://img.shields.io/badge/Docs-GitBook-3884FF?logo=gitbook&logoColor=white)](https://docs.parsue.io/aceland-unity-packages/core-packages/injection)
 
 A **lightweight**, zero-reflection dependency injection container built for modern Unity.
 
@@ -118,6 +121,6 @@ prompt on the gated windows.
 
 We use GitBook as the public documentation for our packages.
 
-> Visit our [GitBook](https://docs.parsue.io/aceland-unity-packages)
+> Visit our [GitBook](https://docs.parsue.io/aceland-unity-packages/core-packages/injection)
 
 Please visit our GitBook for details.
