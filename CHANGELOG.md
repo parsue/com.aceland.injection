@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ---
 # Release - published
 
+## [1.0.2] - 2026-09-24
+### Modified
+- Rearrange Tools menu
+
 ## [1.0.1] - 2026-09-16
 ### Modified
 - Licensing is now an OPTIONAL dependency. Installing AceLand Injection no longer force-installs AceLand Licensing. The runtime and builds are unaffected as always; the paid Editor tools (dependency graph, validation, diagnostics) simply stay disabled and show a one-click install prompt until AceLand Licensing is present.
