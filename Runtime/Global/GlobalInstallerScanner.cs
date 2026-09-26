@@ -26,7 +26,9 @@ namespace AceLand.Injection
 #else
 #if UNITY_EDITOR
             foreach (var t in UnityEditor.TypeCache.GetTypesDerivedFrom<IGlobalInstaller>()) TryAddType(t, found);
+#pragma warning disable UAC0005
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()) AddAssemblyAttributes(asm, found);
+#pragma warning restore UAC0005
 #else
             // Player: prefer the compile-time registry populated by generated module
             // initializers — avoids a full-reflection assembly scan at cold start.

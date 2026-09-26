@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ---
 # Release - published
 
+## [1.0.3] - 2026-09-26
+### Fixed
+- Suppressed compiler warning CS0436 in the generated injector module. The Source Generator's `ModuleInitializerAttribute` polyfill could shadow an identically-named type from a referenced assembly; the benign shadowing is now silenced with a `#pragma warning disable CS0436` in the generated file.
+
 ## [1.0.2] - 2026-09-24
 ### Modified
 - Rearrange Tools menu
