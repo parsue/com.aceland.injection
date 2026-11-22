@@ -127,7 +127,7 @@ namespace AceLand.Injection.SourceGenerator
                 {
                     sb.AppendLine($"{i}    t.{mem.Name} = ({mem.TypeFullName}){N}.ComponentInjection.Resolve(" +
                                   $"t, {N}.ComponentSource.{mem.ComponentSource}, typeof({mem.TypeFullName}), " +
-                                  $"{Bool(mem.Optional)}, {Bool(mem.IncludeInactive)}, \"{mem.Name}\");");
+                                  $"{Bool(mem.Optional)}, {Bool(mem.IncludeInactive)}, {Bool(mem.IncludeSelf)}, \"{mem.Name}\");");
                 }
                 else if (mem.Optional)
                 {

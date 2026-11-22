@@ -14,16 +14,16 @@ namespace AceLand.Injection
         internal static void Hook() => ComponentInjection.Resolver = ResolveBoxed;
 
         private static object ResolveBoxed(object owner, ComponentSource source, Type memberType,
-                                   bool optional, bool includeInactive, string memberName)
+                                   bool optional, bool includeInactive, bool includeSelf, string memberName)
         {
             if (owner is not Component c)
                 throw new InjectionException(
                     $"{owner?.GetType().Name}.{memberName}: component attributes require a Component.");
-            return Resolve(c, source, memberType, optional, includeInactive, memberName);
+            return Resolve(c, source, memberType, optional, includeInactive, includeSelf, memberName);
         }
 
         public static object Resolve(Component owner, ComponentSource source, Type memberType,
-                                     bool optional, bool includeInactive, string memberName)
+                                     bool optional, bool includeInactive, bool includeSelf, string memberName)
         {
             var (element, kind) = Unwrap(memberType);
             if (!typeof(Component).IsAssignableFrom(element) && !element.IsInterface)
@@ -31,7 +31,7 @@ namespace AceLand.Injection
 
             if (kind == Kind.Single)
             {
-                var single = FindSingle(owner, source, element, includeInactive);
+                var single = FindSingle(owner, source, element, includeInactive, includeSelf);
                 if (!single && !optional)
                     throw new InjectionException(
                         $"{owner.GetType().Name}.{memberName}: no {element.Name} found via [{source}] " +
@@ -39,7 +39,7 @@ namespace AceLand.Injection
                 return single;
             }
 
-            var all = FindMany(owner, source, element, includeInactive);
+            var all = FindMany(owner, source, element, includeInactive, includeSelf);
             if (all.Count == 0 && !optional)
                 throw new InjectionException($"{owner.GetType().Name}.{memberName}: no {element.Name} found.");
 
@@ -69,13 +69,18 @@ namespace AceLand.Injection
             return (t, Kind.Single);
         }
 
-        private static Component FindSingle(Component o, ComponentSource s, Type type, bool includeInactive)
+        private static Component FindSingle(Component o, ComponentSource s, Type type,
+                                            bool includeInactive, bool includeSelf)
         {
             switch (s)
             {
                 case ComponentSource.Self:   return o.GetComponent(type);
-                case ComponentSource.Parent: return o.GetComponentInParent(type);
-                case ComponentSource.Child:  return o.GetComponentInChildren(type, includeInactive);
+                case ComponentSource.Parent:
+                    if (includeSelf) return o.GetComponentInParent(type, includeInactive);
+                    return FirstExcludingSelf(o, o.GetComponentsInParent(type, includeInactive));
+                case ComponentSource.Child:
+                    if (includeSelf) return o.GetComponentInChildren(type, includeInactive);
+                    return FirstExcludingSelf(o, o.GetComponentsInChildren(type, includeInactive));
                 case ComponentSource.AddComponent:
                     return o.GetComponent(type) ?? o.gameObject.AddComponent(type);
                 case ComponentSource.Scene:
@@ -84,16 +89,37 @@ namespace AceLand.Injection
             }
         }
 
-        private static IList<Component> FindMany(Component o, ComponentSource s, Type type, bool includeInactive)
+        private static IList<Component> FindMany(Component o, ComponentSource s, Type type,
+                                                 bool includeInactive, bool includeSelf)
         {
             switch (s)
             {
                 case ComponentSource.Self:   return o.GetComponents(type);
-                case ComponentSource.Parent: return o.GetComponentsInParent(type, includeInactive);
-                case ComponentSource.Child:  return o.GetComponentsInChildren(type, includeInactive);
+                case ComponentSource.Parent:
+                    return ExcludeSelf(o, o.GetComponentsInParent(type, includeInactive), includeSelf);
+                case ComponentSource.Child:
+                    return ExcludeSelf(o, o.GetComponentsInChildren(type, includeInactive), includeSelf);
                 case ComponentSource.Scene:  return UnityFind.All(type, includeInactive);
                 default: return Array.Empty<Component>();
             }
+        }
+
+        private static Component FirstExcludingSelf(Component o, Component[] found)
+        {
+            var self = o.transform;
+            foreach (var c in found)
+                if (c && c.transform != self) return c;
+            return null;
+        }
+
+        private static IList<Component> ExcludeSelf(Component o, Component[] found, bool includeSelf)
+        {
+            if (includeSelf) return found;
+            var self = o.transform;
+            var list = new List<Component>(found.Length);
+            foreach (var c in found)
+                if (c && c.transform != self) list.Add(c);
+            return list;
         }
     }
 }

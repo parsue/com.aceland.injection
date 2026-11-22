@@ -50,7 +50,7 @@ namespace AceLand.Injection.SourceGenerator
     {
         public string Name;
         public string TypeFullName;
-        public bool IsComponent, Optional, IncludeInactive, IsPrivateOrProtected, IsProperty;
+        public bool IsComponent, Optional, IncludeInactive, IncludeSelf, IsPrivateOrProtected, IsProperty;
         public string ComponentSource;
         public string IdLiteral;
 
@@ -70,6 +70,7 @@ namespace AceLand.Injection.SourceGenerator
                 m.ComponentSource = comp.Value.source;
                 m.Optional = comp.Value.attr.GetNamedBool("Optional", false);
                 m.IncludeInactive = comp.Value.attr.GetNamedBool("IncludeInactive", true);
+                m.IncludeSelf = comp.Value.attr.GetNamedBool("IncludeSelf", false);
             }
             else
             {

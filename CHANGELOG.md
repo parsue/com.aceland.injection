@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ---
 # Release - published
 
+## [1.0.4] - 2026-11-22
+### Added
+- `[Parent]` and `[Child]` now expose an `IncludeSelf` option (default `false`). By default these lookups only search ancestors / descendants and no longer return a component on the owning GameObject; set `IncludeSelf = true` to restore the previous "includes self" behaviour.
+### Changed
+- **Breaking:** `[Parent]`/`[Child]` default behaviour changed from "includes self" to "excludes self". Members that relied on resolving a component on the same GameObject must now add `IncludeSelf = true` (or switch to `[Self]`).
+
 ## [1.0.3] - 2026-09-26
 ### Fixed
 - Suppressed compiler warning CS0436 in the generated injector module. The Source Generator's `ModuleInitializerAttribute` polyfill could shadow an identically-named type from a referenced assembly; the benign shadowing is now silenced with a `#pragma warning disable CS0436` in the generated file.

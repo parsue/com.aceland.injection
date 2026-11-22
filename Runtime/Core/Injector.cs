@@ -70,7 +70,7 @@ namespace AceLand.Injection
                                 $"{info.Type.Name}.{m.Member.Name}: component attributes require a Component.");
                         var value = ComponentResolver.Resolve(component, m.Component.Source, m.MemberType,
                                                               m.Component.Optional, m.Component.IncludeInactive,
-                                                              m.Member.Name);
+                                                              m.Component.IncludeSelf, m.Member.Name);
                         if (value != null) m.SetValue(instance, value);
                         continue;
                     }
