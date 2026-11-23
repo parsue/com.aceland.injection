@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ---
 # Release - published
 
+## [1.0.5] - 2026-11-23
+### Added
+- Added script icon to `InjectionScope` and `MonoInstaller`.
+
 ## [1.0.4] - 2026-11-22
 ### Added
 - `[Parent]` and `[Child]` now expose an `IncludeSelf` option (default `false`). By default these lookups only search ancestors / descendants and no longer return a component on the owning GameObject; set `IncludeSelf = true` to restore the previous "includes self" behaviour.
